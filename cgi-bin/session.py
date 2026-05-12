@@ -2,6 +2,7 @@
 import os
 import cgi
 import cgitb
+import html
 
 cgitb.enable()
 
@@ -21,7 +22,7 @@ if action == "logout":
     print("</body></html>")
 elif username:
     print("<html><body>")
-    print(f"<h1>Welcome, {cgi.escape(username)}!</h1>")
+    print(f"<h1>Welcome, {html.escape(username)}!</h1>")
     print("<p>You are now logged in.</p>")
     print('<p><a href="/welcome.html">Go to welcome page</a></p>')
     print("</body></html>")

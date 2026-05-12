@@ -304,15 +304,28 @@ size_t ConfigParser::_parseSize(const std::string& value) {
     size_t num = 0;
     size_t i = 0;
     while (i < value.size() && std::isdigit(value[i])) {
+        // Check for overflow before multiplication
+        if (num > (SIZE_MAX - (value[i] - '0')) / 10) {
+            return SIZE_MAX; // Cap at max value on overflow
+        }
         num = num * 10 + (value[i] - '0');
         ++i;
     }
 
     if (i < value.size()) {
         char suffix = std::toupper(value[i]);
-        if (suffix == 'K') num *= 1024;
-        else if (suffix == 'M') num *= 1024 * 1024;
-        else if (suffix == 'G') num *= 1024 * 1024 * 1024;
+        if (suffix == 'K') {
+            if (num > (SIZE_MAX / 1024)) return SIZE_MAX;
+            num *= 1024;
+        }
+        else if (suffix == 'M') {
+            if (num > (SIZE_MAX / (1024 * 1024))) return SIZE_MAX;
+            num *= 1024 * 1024;
+        }
+        else if (suffix == 'G') {
+            if (num > (SIZE_MAX / (1024 * 1024 * 1024))) return SIZE_MAX;
+            num *= 1024 * 1024 * 1024;
+        }
     }
 
     return num;

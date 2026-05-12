@@ -108,9 +108,9 @@ std::string StringUtils::encodeUrl(const std::string& str) {
         if (std::isalnum(str[i]) || str[i] == '-' || str[i] == '_' || str[i] == '.' || str[i] == '~') {
             result += str[i];
         } else {
-            char buf[4];
-            std::snprintf(buf, sizeof(buf), "%%%02X", static_cast<unsigned char>(str[i]));
-            result += buf;
+            std::ostringstream oss;
+            oss << '%' << std::uppercase << std::hex << static_cast<unsigned int>(static_cast<unsigned char>(str[i]));
+            result += oss.str();
         }
     }
     return result;

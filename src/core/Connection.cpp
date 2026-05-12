@@ -9,7 +9,7 @@
 #include "cgi/CgiHandler.hpp"
 
 Connection::Connection(int clientFd, const ServerConfig& serverConfig, Reactor& reactor)
-    : _clientFd(clientFd), _state(READING_HEADERS), _serverConfig(serverConfig),
+    : _clientFd(clientFd), _state(READING_HEADERS), _serverConfig(&serverConfig),
       _reactor(reactor), _bytesWritten(0), _lastActivity(time(NULL)), _keepAlive(true),
       _isKeepAliveIdle(false), _cgiHandler(NULL), _cgiInputFd(-1), _cgiOutputFd(-1) {}
 
@@ -27,22 +27,50 @@ Connection::~Connection() {
 void Connection::handleRead() {
     _isKeepAliveIdle = false;
     updateLastActivity();
-    _processRead();
+    if ((_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN) && _cgiHandler) {
+        _processCgiRead();
+    } else {
+        _processRead();
+    }
 }
 
 void Connection::handleWrite() {
     _isKeepAliveIdle = false;
     updateLastActivity();
-    _processWrite();
+    if (_state == CGI_WRITING_TO_STDIN && _cgiHandler) {
+        _processCgiWrite();
+    } else {
+        _processWrite();
+    }
 }
 
 void Connection::handleError() {
+    // CGI pipes get EPOLLHUP when the child closes its end. We must
+    // attempt to read — this detects EOF (read returns 0) and completes
+    // the CGI response. Skips normal error handling for CGI/response states.
+    if (_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN) {
+        if (_cgiHandler) {
+            _processCgiRead();
+        }
+        return;
+    }
+    if (_state == WRITING_RESPONSE) {
+        return;
+    }
     LOG_WARN("Connection error on fd " + StringUtils::intToString(_clientFd));
     _state = CLOSING;
 }
 
 int Connection::getFd() const {
     return _clientFd;
+}
+
+ConnectionState Connection::getState() const {
+    return _state;
+}
+
+CgiHandler* Connection::getCgiHandler() const {
+    return _cgiHandler;
 }
 
 void Connection::closeConnection() {
@@ -69,7 +97,11 @@ void Connection::_processRead() {
     ssize_t bytesRead = recv(_clientFd, buffer, BUFFER_SIZE - 1, 0);
 
     if (bytesRead < 0) {
-        handleError();
+        // On non-blocking sockets, recv() returning -1 can mean either a real error
+        // or EAGAIN/EWOULDBLOCK (socket would block). We don't check errno per the
+        // subject requirement. Instead, we simply return and let epoll re-notify
+        // us when data is available. If it was a real error, the next epoll event
+        // will report EPOLLERR/EPOLLHUP and trigger handleError().
         return;
     }
 
@@ -82,27 +114,39 @@ void Connection::_processRead() {
     buffer[bytesRead] = '\0';
     _readBuffer.append(buffer, bytesRead);
 
+    // M1: Check read buffer size against client_max_body_size to prevent OOM
+    if (_readBuffer.size() > _serverConfig->getClientMaxBodySize()) {
+        _readBuffer.clear();
+        _buildErrorResponse(413);
+        return;
+    }
+
     if (_state == READING_HEADERS || _state == READING_BODY) {
         ParseResult result = _parser.parse(_readBuffer, _request);
-        _readBuffer.clear();
 
         if (result == PARSE_ERROR) {
+            _readBuffer.clear();
+            _parser.reset();
             _buildErrorResponse(400);
             return;
         }
         if (result == PARSE_OK) {
+            // Preserve any leftover data (from pipelined requests) before resetting parser
+            _readBuffer = _parser.getLeftoverData();
+            _parser.reset();
+
             // Check Content-Length against client_max_body_size
             if (_request.getMethod() == "POST" || _request.getMethod() == "PUT") {
                 std::string contentLengthStr = _request.getHeader("Content-Length");
                 if (!contentLengthStr.empty()) {
                     size_t contentLength = static_cast<size_t>(std::atoi(contentLengthStr.c_str()));
-                    if (contentLength > _serverConfig.getClientMaxBodySize()) {
+                    if (contentLength > _serverConfig->getClientMaxBodySize()) {
                         _buildErrorResponse(413);
                         return;
                     }
                 }
                 // Also check actual body size for chunked or accumulated body
-                if (_request.getBody().size() > _serverConfig.getClientMaxBodySize()) {
+                if (_request.getBody().size() > _serverConfig->getClientMaxBodySize()) {
                     _buildErrorResponse(413);
                     return;
                 }
@@ -126,9 +170,10 @@ void Connection::_processWrite() {
                              _writeBuffer.size() - _bytesWritten, 0);
 
     if (bytesSent < 0) {
-        handleError();
-        // Ensure EPOLLOUT remains enabled so we get notified when socket is writable again
-        _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+        // Same as recv(): on non-blocking sockets, send() returning -1 can mean
+        // EAGAIN (would block) or a real error. We don't check errno per the
+        // subject requirement. Just return — epoll will re-notify us via EPOLLOUT
+        // when the socket is writable, or EPOLLERR/EPOLLHUP on real error.
         return;
     }
 
@@ -139,7 +184,9 @@ void Connection::_processWrite() {
         if (_keepAlive) {
             _request.clear();
             _response.clear();
-            _readBuffer.clear();
+            // M6: Don't clear _readBuffer - it may contain data for a pipelined request
+            // that was already received and parsed. The HttpParser.getLeftoverData()
+            // preserved any bytes beyond the first request. Just reset state.
             _writeBuffer.clear();
             _bytesWritten = 0;
             _parser.reset();
@@ -162,6 +209,9 @@ void Connection::_processRequest() {
     }
     _sessionId = sessionId;
 
+    // Virtual host matching based on Host header
+    _matchVirtualHost();
+
     const RouteConfig* route = _findMatchingRoute(_request.getUri());
 
     if (!route) {
@@ -181,13 +231,17 @@ void Connection::_processRequest() {
         return;
     }
 
+    if (!route->isMethodAllowed(_request.getMethod())) {
+        _buildErrorResponse(405);
+        return;
+    }
+
     std::string path = _resolvePath(_request, *route);
     std::string ext = StringUtils::getExtension(path);
 
     if (route->hasCgiHandler(ext)) {
-        // Start async CGI processing
         _cgiHandler = new CgiHandler();
-        _cgiHandler->start(_request, *route, _serverConfig, _response);
+        _cgiHandler->start(_request, *route, *_serverConfig, _response);
 
         if (_response.isReady()) {
             // Error occurred during start
@@ -227,13 +281,13 @@ void Connection::_processRequest() {
 
     if (_request.getMethod() == "GET") {
         GetHandler handler;
-        handler.handle(_request, _response, *route, _serverConfig);
+        handler.handle(_request, _response, *route, *_serverConfig);
     } else if (_request.getMethod() == "POST") {
         PostHandler handler;
-        handler.handle(_request, _response, *route, _serverConfig);
+        handler.handle(_request, _response, *route, *_serverConfig);
     } else if (_request.getMethod() == "DELETE") {
         DeleteHandler handler;
-        handler.handle(_request, _response, *route, _serverConfig);
+        handler.handle(_request, _response, *route, *_serverConfig);
     } else {
         _buildErrorResponse(405);
         return;
@@ -273,15 +327,16 @@ void Connection::_processCgiRead() {
     }
 
     char buffer[BUFFER_SIZE];
-    ssize_t n = _cgiHandler->readOutputChunk(buffer, sizeof(buffer));
+    // Read ALL available data in a loop. The pipe is non-blocking and
+    // we must drain it until EAGAIN (-1) or EOF (0). This ensures we
+    // detect EOF even when only EPOLLHUP (no EPOLLIN) fires after all
+    // data has been consumed.
+    while (true) {
+        ssize_t n = _cgiHandler->readOutputChunk(buffer, sizeof(buffer));
+        if (n < 0) break;
+        if (n > 0) continue;
 
-    if (n < 0) {
-        // EAGAIN or would block - just return, epoll will notify us again
-        return;
-    }
-
-    if (n == 0) {
-        // EOF - CGI output complete
+        // n == 0: EOF - CGI output complete
         if (_cgiOutputFd >= 0) {
             _reactor.removeHandler(_cgiOutputFd);
             close(_cgiOutputFd);
@@ -305,6 +360,7 @@ void Connection::_processCgiRead() {
         // Cleanup CGI handler
         delete _cgiHandler;
         _cgiHandler = NULL;
+        break;
     }
 }
 
@@ -326,6 +382,26 @@ void Connection::_unregisterCgiPipes() {
     }
 }
 
+void Connection::_matchVirtualHost() {
+    std::string host = _request.getHeader("Host");
+    if (host.empty()) {
+        return;
+    }
+    // Remove port if present (e.g., "example.com:8080" -> "example.com")
+    size_t colonPos = host.find(':');
+    if (colonPos != std::string::npos) {
+        host = host.substr(0, colonPos);
+    }
+    // Get port from the default server config
+    const std::vector<std::pair<std::string, int> >& listens = _serverConfig->getListens();
+    if (listens.empty()) {
+        return;
+    }
+    int port = listens[0].second;
+    // Ask reactor to find matching virtual host
+    _serverConfig = &_reactor.matchVirtualHost(port, host);
+}
+
 void Connection::handleCgiInputWrite() {
     _processCgiWrite();
 }
@@ -337,11 +413,11 @@ void Connection::handleCgiOutputRead() {
 void Connection::_buildErrorResponse(int statusCode) {
     _response.clear();
     std::string root;
-    const std::vector<RouteConfig>& routes = _serverConfig.getRoutes();
+    const std::vector<RouteConfig>& routes = _serverConfig->getRoutes();
     if (!routes.empty()) {
         root = routes[0].getRoot();
     }
-    _response.buildError(statusCode, _serverConfig.getErrorPages(), root);
+    _response.buildError(statusCode, _serverConfig->getErrorPages(), root);
     _response.setCookie("webserv_session_id", _sessionId);
     _writeBuffer = _response.toString();
     _state = WRITING_RESPONSE;
@@ -349,15 +425,22 @@ void Connection::_buildErrorResponse(int statusCode) {
 }
 
 const RouteConfig* Connection::_findMatchingRoute(const std::string& uri) const {
-    return _serverConfig.findRoute(uri);
+    return _serverConfig->findRoute(uri);
 }
 
 std::string Connection::_resolvePath(const Request& request, const RouteConfig& route) {
     std::string uri = request.getUri();
+    size_t qpos = uri.find('?');
+    if (qpos != std::string::npos) {
+        uri = uri.substr(0, qpos);
+    }
+
     std::string routePath = route.getPath();
 
     if (routePath != "/" && StringUtils::startsWith(uri, routePath)) {
-        uri = uri.substr(routePath.size());
+        if (uri.size() > routePath.size()) {
+            uri = uri.substr(routePath.size());
+        }
     }
     if (uri.empty() || uri[0] != '/') {
         uri = "/" + uri;

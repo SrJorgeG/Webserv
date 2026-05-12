@@ -18,7 +18,7 @@ private:
     void _serveFile(const std::string& path, Response& response);
     void _serveDirectory(const std::string& path, const RouteConfig& route, Response& response);
     void _generateAutoindex(const std::string& path, const std::string& uri, Response& response);
-    std::string _resolvePath(const Request& request, const RouteConfig& route);
+    std::string _resolvePath(const std::string& uri, const RouteConfig& route);
 };
 
 #endif

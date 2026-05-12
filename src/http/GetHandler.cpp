@@ -12,14 +12,40 @@ void GetHandler::handle(const Request& request, Response& response,
                         const RouteConfig& route, const ServerConfig& server) {
     (void)server;
 
-    std::string path = _resolvePath(request, route);
+    std::string uri = request.getUri();
+    // Strip query string for path resolution and redirect logic
+    size_t qpos = uri.find('?');
+    if (qpos != std::string::npos)
+        uri = uri.substr(0, qpos);
 
+    std::string path = _resolvePath(uri, route);
+
+    // If path doesn't exist, check whether appending a slash resolves to a directory
+    // (e.g., /uploads -> /uploads/ when route root is a directory)
     if (!FileUtils::fileExists(path)) {
+        if (!uri.empty() && uri[uri.size() - 1] != '/') {
+            std::string altPath = _resolvePath(uri + "/", route);
+            if (FileUtils::isDirectory(altPath)) {
+                response.setStatus(301);
+                response.setHeader("Location", uri + "/");
+                response.setBody("");
+                response.setReady(true);
+                return;
+            }
+        }
         response.buildError(404, server.getErrorPages(), route.getRoot());
         return;
     }
 
+    // Existing directory: redirect to URI with trailing slash
     if (FileUtils::isDirectory(path)) {
+        if (!uri.empty() && uri[uri.size() - 1] != '/') {
+            response.setStatus(301);
+            response.setHeader("Location", uri + "/");
+            response.setBody("");
+            response.setReady(true);
+            return;
+        }
         _serveDirectory(path, route, response);
         return;
     }
@@ -97,12 +123,19 @@ void GetHandler::_generateAutoindex(const std::string& path, const std::string& 
     response.setReady(true);
 }
 
-std::string GetHandler::_resolvePath(const Request& request, const RouteConfig& route) {
-    std::string decodedUri = StringUtils::decodeUrl(request.getUri());
+std::string GetHandler::_resolvePath(const std::string& rawUri, const RouteConfig& route) {
+    std::string decodedUri = StringUtils::decodeUrl(rawUri);
+    size_t qpos = decodedUri.find('?');
+    if (qpos != std::string::npos) {
+        decodedUri = decodedUri.substr(0, qpos);
+    }
+
     std::string routePath = route.getPath();
 
     if (routePath != "/" && StringUtils::startsWith(decodedUri, routePath)) {
-        decodedUri = decodedUri.substr(routePath.size());
+        if (decodedUri.size() > routePath.size()) {
+            decodedUri = decodedUri.substr(routePath.size());
+        }
     }
     if (decodedUri.empty() || decodedUri[0] != '/') {
         decodedUri = "/" + decodedUri;

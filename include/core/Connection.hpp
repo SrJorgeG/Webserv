@@ -26,8 +26,10 @@ public:
     void closeConnection();
     bool isTimedOut() const;
     void updateLastActivity();
+    ConnectionState getState() const;
+    CgiHandler* getCgiHandler() const;
 
-    // CGI pipe handlers (called by Reactor when CGI pipes have events)
+    // CGI pipe handlers
     void handleCgiInputWrite();
     void handleCgiOutputRead();
 
@@ -37,7 +39,7 @@ private:
 
     int _clientFd;
     ConnectionState _state;
-    const ServerConfig& _serverConfig;
+    const ServerConfig* _serverConfig;
     Reactor& _reactor;
 
     Request _request;
@@ -64,6 +66,7 @@ private:
     void _processRequest();
     void _processCgiWrite();
     void _processCgiRead();
+    void _matchVirtualHost();
     void _buildErrorResponse(int statusCode);
     const RouteConfig* _findMatchingRoute(const std::string& uri) const;
     std::string _resolvePath(const Request& request, const RouteConfig& route);

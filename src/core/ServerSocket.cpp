@@ -73,7 +73,7 @@ int ServerSocket::acceptConnection() {
     socklen_t addrLen = sizeof(clientAddr);
     int clientFd = accept(_fd, (struct sockaddr*)&clientAddr, &addrLen);
     if (clientFd < 0) {
-        LOG_WARN("accept() returned -1");
+        LOG_DEBUG("accept() returned -1 (EAGAIN expected on non-blocking socket)");
         return -1;
     }
 
@@ -81,6 +81,11 @@ int ServerSocket::acceptConnection() {
         LOG_ERROR("fcntl() on client failed");
         close(clientFd);
         return -1;
+    }
+
+    // Set FD_CLOEXEC so client socket doesn't leak to CGI child processes
+    if (fcntl(clientFd, F_SETFD, FD_CLOEXEC) < 0) {
+        LOG_WARN("fcntl(FD_CLOEXEC) on client failed");
     }
 
     return clientFd;

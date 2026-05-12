@@ -36,11 +36,19 @@ void CgiHandler::start(const Request& request, const RouteConfig& route,
 
         // Resolve script path
         std::string uri = request.getUri();
+        size_t qpos = uri.find('?');
+        if (qpos != std::string::npos) {
+            uri = uri.substr(0, qpos);
+        }
         std::string routePath = route.getPath();
         std::string scriptPath = uri;
 
         if (routePath != "/" && StringUtils::startsWith(uri, routePath)) {
-            scriptPath = uri.substr(routePath.size());
+            if (uri.size() > routePath.size()) {
+                scriptPath = uri.substr(routePath.size());
+            } else {
+                scriptPath = uri;
+            }
         }
         if (!scriptPath.empty() && scriptPath[0] == '/') {
             scriptPath = scriptPath.substr(1);
@@ -146,6 +154,9 @@ ssize_t CgiHandler::readOutputChunk(char* buffer, size_t size) {
     ssize_t n = read(_outputPipe[0], buffer, size);
     if (n > 0) {
         _outputBuffer.append(buffer, n);
+        if (_outputBuffer.size() > CGI_MAX_OUTPUT_SIZE) {
+            LOG_WARN("CGI output exceeded maximum size limit");
+        }
     }
     return n;
 }
@@ -159,24 +170,34 @@ void CgiHandler::finishBodyWrite() {
 }
 
 void CgiHandler::finishOutputRead(Response& response) {
-    // Wait for child process
+    // Reap the child process without blocking the event loop
+    bool childFailed = false;
     if (_pid > 0) {
         int status;
         pid_t result = waitpid(_pid, &status, WNOHANG);
         if (result == 0) {
-            // Child still running, wait with timeout
-            time_t waitStart = time(NULL);
-            while (time(NULL) - waitStart < 2) {
-                result = waitpid(_pid, &status, WNOHANG);
-                if (result == _pid) break;
-                // Use poll-like approach instead of usleep to avoid blocking event loop
-            }
-            if (result == 0) {
-                kill(_pid, SIGKILL);
-                waitpid(_pid, &status, 0);
-            }
+            // Child still running after EOF on pipe — kill it immediately.
+            // A well-behaved CGI should have exited when its stdout closed.
+            // Busy-waiting would violate the non-blocking requirement.
+            kill(_pid, SIGKILL);
+            waitpid(_pid, &status, 0);
+        }
+        // Check if the child exited with a non-zero status (e.g., execve failure)
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            childFailed = true;
+        } else if (WIFSIGNALED(status)) {
+            childFailed = true;
         }
         _pid = -1;
+    }
+
+    // If the child process failed and the output doesn't look like valid
+    // CGI output (no Content-Type or Status header), return a 500 error
+    if (childFailed && _outputBuffer.find("Content-Type") == std::string::npos
+                     && _outputBuffer.find("Status") == std::string::npos) {
+        response.buildError(500, std::map<int, std::string>(), "");
+        _state = CGI_DONE;
+        return;
     }
 
     _parseCgiOutput(response);
@@ -214,22 +235,26 @@ void CgiHandler::_setupEnvironment(const Request& request, const RouteConfig& ro
     _envVars.push_back("SERVER_PROTOCOL=HTTP/1.1");
     _envVars.push_back("SERVER_SOFTWARE=webserv/1.0");
     _envVars.push_back("REQUEST_METHOD=" + request.getMethod());
-    _envVars.push_back("SCRIPT_NAME=" + request.getUri());
 
-    // Extract PATH_INFO and QUERY_STRING
+    // Extract QUERY_STRING from URI before setting SCRIPT_NAME
     std::string uri = request.getUri();
     std::string queryString;
-    std::string pathInfo;
-
     size_t qpos = uri.find('?');
     if (qpos != std::string::npos) {
         queryString = uri.substr(qpos + 1);
         uri = uri.substr(0, qpos);
     }
 
+    // SCRIPT_NAME should NOT include the query string (RFC 3875)
+    _envVars.push_back("SCRIPT_NAME=" + uri);
+
+    // PATH_INFO: path after the script name (not yet extracted per-route)
+    // For now, empty as we don't have detailed route-based PATH_INFO parsing
+    std::string pathInfo;
+    _envVars.push_back("PATH_INFO=" + pathInfo);
+    _envVars.push_back("PATH_TRANSLATED=" + (pathInfo.empty() ? std::string("") : route.getRoot() + pathInfo));
+
     _envVars.push_back("QUERY_STRING=" + queryString);
-    _envVars.push_back("PATH_INFO=");
-    _envVars.push_back("PATH_TRANSLATED=" + route.getRoot());
 
     // Content-Length and Content-Type
     std::string contentLength = request.getHeader("Content-Length");
@@ -249,14 +274,21 @@ void CgiHandler::_setupEnvironment(const Request& request, const RouteConfig& ro
     if (!listens.empty()) {
         _envVars.push_back("SERVER_NAME=" + listens[0].first);
         _envVars.push_back("SERVER_PORT=" + StringUtils::intToString(listens[0].second));
+        // SERVER_ADDR: the address the server is listening on
+        _envVars.push_back("SERVER_ADDR=" + listens[0].first);
     } else {
         _envVars.push_back("SERVER_NAME=localhost");
         _envVars.push_back("SERVER_PORT=8080");
+        _envVars.push_back("SERVER_ADDR=127.0.0.1");
     }
 
-    // Client info
+    // Client info (actual client IP would require getpeername, fallback for now)
     _envVars.push_back("REMOTE_ADDR=127.0.0.1");
     _envVars.push_back("REMOTE_HOST=127.0.0.1");
+
+    // Auth info (not implemented, required by RFC 3875)
+    _envVars.push_back("AUTH_TYPE=");
+    _envVars.push_back("REMOTE_USER=");
 
     // HTTP headers as environment variables
     const std::map<std::string, std::string>& headers = request.getHeaders();
@@ -332,14 +364,23 @@ void CgiHandler::_forkAndExecute(const std::string& interpreter, const std::stri
     _inputPipe[0] = -1;
     _outputPipe[1] = -1;
 
-    // Set non-blocking mode for pipes
+    // Set FD_CLOEXEC on parent's pipe ends so they don't leak to future CGI children.
+    // Also prevents accidental inheritance across execve.
     if (_inputPipe[1] >= 0) {
-        int flags = fcntl(_inputPipe[1], F_GETFL, 0);
-        fcntl(_inputPipe[1], F_SETFL, flags | O_NONBLOCK);
+        fcntl(_inputPipe[1], F_SETFD, FD_CLOEXEC);
     }
     if (_outputPipe[0] >= 0) {
-        int flags = fcntl(_outputPipe[0], F_GETFL, 0);
-        fcntl(_outputPipe[0], F_SETFL, flags | O_NONBLOCK);
+        fcntl(_outputPipe[0], F_SETFD, FD_CLOEXEC);
+    }
+
+    // Set non-blocking mode for pipes
+    // Fresh pipes have no flags set, so we only need F_SETFL + O_NONBLOCK.
+    // F_GETFL is not permitted on macOS per the subject.
+    if (_inputPipe[1] >= 0) {
+        fcntl(_inputPipe[1], F_SETFL, O_NONBLOCK);
+    }
+    if (_outputPipe[0] >= 0) {
+        fcntl(_outputPipe[0], F_SETFL, O_NONBLOCK);
     }
 }
 

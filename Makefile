@@ -35,7 +35,7 @@ all: directories $(NAME)
 directories:
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/http $(OBJ_DIR)/config $(OBJ_DIR)/cgi $(OBJ_DIR)/utils
 
-$(NAME): directories $(OBJS)
+$(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $(NAME)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
@@ -51,4 +51,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re
+.PHONY: all clean fclean re directories

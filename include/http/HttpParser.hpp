@@ -15,6 +15,9 @@ public:
     void reset();
     bool headersComplete() const;
 
+    // Get leftover data in the internal buffer (for pipelining support)
+    std::string getLeftoverData() const;
+
 private:
     HttpParser(const HttpParser& other);
     HttpParser& operator=(const HttpParser& other);

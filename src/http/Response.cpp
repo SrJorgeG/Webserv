@@ -96,8 +96,11 @@ std::string Response::toString() const {
     if (_headers.find("Date") == _headers.end()) {
         std::time_t now = std::time(NULL);
         char dateBuf[128];
-        std::strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S GMT", std::gmtime(&now));
-        oss << "Date: " << dateBuf << "\r\n";
+        std::tm* tmPtr = std::gmtime(&now);
+        if (tmPtr != NULL) {
+            std::strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S GMT", tmPtr);
+            oss << "Date: " << dateBuf << "\r\n";
+        }
     }
 
     // Add Server header

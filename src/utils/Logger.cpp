@@ -69,8 +69,11 @@ std::string Logger::_levelToString(LogLevel level) const {
 
 std::string Logger::_getTimestamp() const {
     time_t now = time(NULL);
-    struct tm* tm = localtime(&now);
+    struct tm* tmPtr = localtime(&now);
+    if (tmPtr == NULL) {
+        return "[TIME_ERROR]";
+    }
     char buf[20];
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm);
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tmPtr);
     return std::string(buf);
 }

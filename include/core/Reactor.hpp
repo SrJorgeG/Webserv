@@ -23,6 +23,8 @@ public:
 
     void addConnection(int clientFd, const ServerConfig& config);
 
+    const ServerConfig& matchVirtualHost(int port, const std::string& hostName) const;
+
     bool isRunning() const;
 
 private:
@@ -32,6 +34,7 @@ private:
     int _epollFd;
     bool _running;
     std::map<int, EventHandler*> _handlers;
+    std::vector<ServerConfig> _configs;
 
     void _dispatchEvent(struct epoll_event& event);
     void _cleanupConnections();

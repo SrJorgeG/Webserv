@@ -99,6 +99,7 @@ std::string FileUtils::normalizePath(const std::string& path) {
     std::vector<std::string> parts;
     std::istringstream iss(path);
     std::string part;
+    bool isAbsolute = !path.empty() && path[0] == '/';
 
     while (std::getline(iss, part, '/')) {
         if (part.empty() || part == ".") {
@@ -119,7 +120,11 @@ std::string FileUtils::normalizePath(const std::string& path) {
     }
 
     if (result.empty()) {
-        result = "/";
+        result = isAbsolute ? "/" : ".";
+    }
+
+    if (!isAbsolute && !result.empty() && result[0] == '/') {
+        result = result.substr(1);
     }
 
     return result;

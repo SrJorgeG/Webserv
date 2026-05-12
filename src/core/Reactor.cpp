@@ -1,6 +1,7 @@
 #include "core/Reactor.hpp"
 #include "core/ServerSocket.hpp"
 #include "core/Connection.hpp"
+#include "cgi/CgiHandler.hpp"
 #include "utils/Logger.hpp"
 #include "utils/StringUtils.hpp"
 #include <cerrno>
@@ -24,6 +25,8 @@ bool Reactor::init(const std::vector<ServerConfig>& servers) {
         LOG_ERROR("epoll_create failed");
         return false;
     }
+
+    _configs = servers;
 
     for (size_t i = 0; i < servers.size(); ++i) {
         const std::vector<std::pair<std::string, int> >& listens = servers[i].getListens();
@@ -108,6 +111,29 @@ void Reactor::addConnection(int clientFd, const ServerConfig& config) {
     LOG_INFO("New connection on fd " + StringUtils::intToString(clientFd));
 }
 
+const ServerConfig& Reactor::matchVirtualHost(int port, const std::string& hostName) const {
+    // First pass: exact match
+    for (size_t i = 0; i < _configs.size(); ++i) {
+        const std::vector<std::pair<std::string, int> >& listens = _configs[i].getListens();
+        for (size_t j = 0; j < listens.size(); ++j) {
+            if (listens[j].second == port && _configs[i].getServerName() == hostName) {
+                return _configs[i];
+            }
+        }
+    }
+    // Second pass: wildcard match (e.g., server_name with "*" or empty)
+    for (size_t i = 0; i < _configs.size(); ++i) {
+        const std::vector<std::pair<std::string, int> >& listens = _configs[i].getListens();
+        for (size_t j = 0; j < listens.size(); ++j) {
+            if (listens[j].second == port) {
+                return _configs[i];
+            }
+        }
+    }
+    // Fallback: return first config (should not happen if config is valid)
+    return _configs[0];
+}
+
 bool Reactor::isRunning() const {
     return _running;
 }
@@ -116,15 +142,18 @@ void Reactor::_dispatchEvent(struct epoll_event& event) {
     EventHandler* handler = static_cast<EventHandler*>(event.data.ptr);
     if (!handler) return;
 
-    if (event.events & EPOLLERR || event.events & EPOLLHUP) {
+    // IMPORTANT: Check EPOLLIN before EPOLLHUP.
+    // When a CGI pipe's write end is closed, the read end gets
+    // EPOLLHUP | EPOLLIN (if data is buffered). We must read the
+    // data before handling the hangup, otherwise CGI output is lost.
+    if (event.events & EPOLLIN) {
+        handler->handleRead();
+    }
+    if (event.events & EPOLLOUT) {
+        handler->handleWrite();
+    }
+    if (event.events & (EPOLLERR | EPOLLHUP)) {
         handler->handleError();
-    } else {
-        if (event.events & EPOLLIN) {
-            handler->handleRead();
-        }
-        if (event.events & EPOLLOUT) {
-            handler->handleWrite();
-        }
     }
 }
 
@@ -133,7 +162,12 @@ void Reactor::_cleanupConnections() {
     for (std::map<int, EventHandler*>::iterator it = _handlers.begin(); it != _handlers.end(); ++it) {
         Connection* conn = dynamic_cast<Connection*>(it->second);
         if (conn) {
-            if (conn->isTimedOut() || conn->getFd() < 0) {
+            // Check CGI timeouts
+            CgiHandler* cgi = conn->getCgiHandler();
+            if (cgi) {
+                cgi->checkTimeout();
+            }
+            if (conn->isTimedOut() || conn->getFd() < 0 || conn->getState() == CLOSING) {
                 toRemove.push_back(it->first);
             }
         }

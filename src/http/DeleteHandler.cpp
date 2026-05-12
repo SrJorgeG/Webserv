@@ -13,10 +13,16 @@ void DeleteHandler::handle(const Request& request, Response& response,
 
     std::string path = route.getRoot();
     std::string decodedUri = StringUtils::decodeUrl(request.getUri());
+    size_t qpos = decodedUri.find('?');
+    if (qpos != std::string::npos) {
+        decodedUri = decodedUri.substr(0, qpos);
+    }
     std::string routePath = route.getPath();
 
     if (routePath != "/" && StringUtils::startsWith(decodedUri, routePath)) {
-        decodedUri = decodedUri.substr(routePath.size());
+        if (decodedUri.size() > routePath.size()) {
+            decodedUri = decodedUri.substr(routePath.size());
+        }
     }
 
     std::string fullPath = FileUtils::joinPath(path, decodedUri);

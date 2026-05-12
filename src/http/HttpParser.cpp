@@ -63,6 +63,10 @@ void HttpParser::reset() {
     _requestLineComplete = false;
 }
 
+std::string HttpParser::getLeftoverData() const {
+    return _buffer;
+}
+
 bool HttpParser::headersComplete() const {
     return _headersComplete;
 }
@@ -149,15 +153,21 @@ ParseResult HttpParser::_parseChunkedBody(Request& request) {
         for (size_t i = 0; i < sizeStr.length(); ++i) {
             char c = sizeStr[i];
             if (c == ' ' || c == '\t') continue; // Allow trailing whitespace
+            int digit = -1;
             if (c >= '0' && c <= '9') {
-                chunkSize = chunkSize * 16 + (c - '0');
+                digit = c - '0';
             } else if (c >= 'a' && c <= 'f') {
-                chunkSize = chunkSize * 16 + (c - 'a' + 10);
+                digit = c - 'a' + 10;
             } else if (c >= 'A' && c <= 'F') {
-                chunkSize = chunkSize * 16 + (c - 'A' + 10);
+                digit = c - 'A' + 10;
             } else {
                 return PARSE_ERROR; // Invalid hex character
             }
+            // Check for overflow before multiplication
+            if (chunkSize > (SIZE_MAX - digit) / 16) {
+                return PARSE_ERROR; // Chunk size too large
+            }
+            chunkSize = chunkSize * 16 + digit;
         }
 
         // Remove the size line from buffer (+2 for \r\n)

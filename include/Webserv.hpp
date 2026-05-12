@@ -50,6 +50,7 @@ class CgiHandler;
 #define CONNECTION_TIMEOUT 60 // segundos
 #define KEEP_ALIVE_TIMEOUT 10 // segundos
 #define CGI_TIMEOUT 30 // segundos
+#define CGI_MAX_OUTPUT_SIZE (10 * 1024 * 1024) // 10MB max CGI output buffer
 #define BUFFER_SIZE 8192
 #define MAX_EVENTS 1024
 #define BACKLOG 128
