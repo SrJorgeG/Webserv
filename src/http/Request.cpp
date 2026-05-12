@@ -1,4 +1,5 @@
 #include "http/Request.hpp"
+#include "utils/StringUtils.hpp"
 #include <cctype>
 
 Request::Request()
@@ -66,18 +67,8 @@ void Request::setQueryString(const std::string& query) { _queryString = query; }
 std::string Request::getHeader(const std::string& key) const {
     for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
          it != _headers.end(); ++it) {
-        if (it->first.size() == key.size()) {
-            bool match = true;
-            for (size_t i = 0; i < key.size(); ++i) {
-                if (std::tolower(static_cast<unsigned char>(it->first[i])) !=
-                    std::tolower(static_cast<unsigned char>(key[i]))) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return it->second;
-            }
+        if (StringUtils::caseInsensitiveEqual(it->first, key)) {
+            return it->second;
         }
     }
     return "";
@@ -86,18 +77,8 @@ std::string Request::getHeader(const std::string& key) const {
 bool Request::hasHeader(const std::string& key) const {
     for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
          it != _headers.end(); ++it) {
-        if (it->first.size() == key.size()) {
-            bool match = true;
-            for (size_t i = 0; i < key.size(); ++i) {
-                if (std::tolower(static_cast<unsigned char>(it->first[i])) !=
-                    std::tolower(static_cast<unsigned char>(key[i]))) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return true;
-            }
+        if (StringUtils::caseInsensitiveEqual(it->first, key)) {
+            return true;
         }
     }
     return false;

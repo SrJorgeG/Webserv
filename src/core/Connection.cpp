@@ -5,7 +5,7 @@
 #include "http/DeleteHandler.hpp"
 #include "utils/Logger.hpp"
 #include "utils/StringUtils.hpp"
-#include "utils/FileUtils.hpp"
+
 #include "cgi/CgiHandler.hpp"
 
 Connection::Connection(int clientFd, const ServerConfig& serverConfig, Reactor& reactor)
@@ -364,11 +364,6 @@ void Connection::_processCgiRead() {
     }
 }
 
-void Connection::_registerCgiPipes() {
-    // CGI pipes are registered when CGI processing starts
-    // This method is here for potential future use
-}
-
 void Connection::_unregisterCgiPipes() {
     if (_cgiInputFd >= 0) {
         _reactor.removeHandler(_cgiInputFd);
@@ -429,22 +424,5 @@ const RouteConfig* Connection::_findMatchingRoute(const std::string& uri) const 
 }
 
 std::string Connection::_resolvePath(const Request& request, const RouteConfig& route) {
-    std::string uri = request.getUri();
-    size_t qpos = uri.find('?');
-    if (qpos != std::string::npos) {
-        uri = uri.substr(0, qpos);
-    }
-
-    std::string routePath = route.getPath();
-
-    if (routePath != "/" && StringUtils::startsWith(uri, routePath)) {
-        if (uri.size() > routePath.size()) {
-            uri = uri.substr(routePath.size());
-        }
-    }
-    if (uri.empty() || uri[0] != '/') {
-        uri = "/" + uri;
-    }
-
-    return FileUtils::joinPath(route.getRoot(), uri);
+    return StringUtils::resolvePath(request.getUri(), route.getPath(), route.getRoot());
 }

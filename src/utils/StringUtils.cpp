@@ -1,4 +1,5 @@
 #include "utils/StringUtils.hpp"
+#include "utils/FileUtils.hpp"
 #include <sstream>
 #include <cctype>
 
@@ -124,6 +125,19 @@ bool StringUtils::endsWith(const std::string& str, const std::string& suffix) {
     return str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
+bool StringUtils::caseInsensitiveEqual(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string StringUtils::getExtension(const std::string& path) {
     size_t pos = path.rfind('.');
     if (pos != std::string::npos) {
@@ -174,4 +188,35 @@ std::string StringUtils::htmlEscape(const std::string& str) {
         }
     }
     return result;
+}
+
+std::string StringUtils::stripQueryString(const std::string& uri) {
+    size_t qpos = uri.find('?');
+    if (qpos != std::string::npos) {
+        return uri.substr(0, qpos);
+    }
+    return uri;
+}
+
+std::string StringUtils::resolvePath(const std::string& uri, const std::string& routePath, const std::string& root) {
+    std::string path = stripQueryString(uri);
+
+    if (routePath != "/" && startsWith(path, routePath)) {
+        if (path.size() > routePath.size()) {
+            path = path.substr(routePath.size());
+        }
+    }
+
+    if (path.empty() || path[0] != '/') {
+        path = "/" + path;
+    }
+
+    std::string fullPath = FileUtils::joinPath(root, path);
+    std::string normalizedPath = FileUtils::normalizePath(fullPath);
+
+    if (!startsWith(normalizedPath, root)) {
+        return "";
+    }
+
+    return normalizedPath;
 }

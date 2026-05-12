@@ -19,7 +19,6 @@ public:
     void registerHandler(int fd, EventHandler* handler, uint32_t events);
     void modifyHandler(int fd, uint32_t events);
     void removeHandler(int fd);
-    void modifyHandlerEvents(int fd, uint32_t events);
 
     void addConnection(int clientFd, const ServerConfig& config);
 

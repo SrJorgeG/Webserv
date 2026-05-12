@@ -90,11 +90,6 @@ void Reactor::modifyHandler(int fd, uint32_t events) {
     }
 }
 
-void Reactor::modifyHandlerEvents(int fd, uint32_t events) {
-    // Same as modifyHandler - kept for API clarity
-    modifyHandler(fd, events);
-}
-
 void Reactor::removeHandler(int fd) {
     epoll_ctl(_epollFd, EPOLL_CTL_DEL, fd, NULL);
     _handlers.erase(fd);

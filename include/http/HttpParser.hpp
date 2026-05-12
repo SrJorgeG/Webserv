@@ -28,7 +28,6 @@ private:
 
     ParseResult _parseRequestLine(Request& request);
     ParseResult _parseHeaders(Request& request);
-    ParseResult _parseBody(Request& request);
     ParseResult _parseChunkedBody(Request& request);
 
     bool _isValidMethod(const std::string& method) const;

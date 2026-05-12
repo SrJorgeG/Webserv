@@ -131,8 +131,6 @@ PostHandler::~PostHandler() {}
 
 void PostHandler::handle(const Request& request, Response& response,
                          const RouteConfig& route, const ServerConfig& server) {
-    (void)server;
-
     if (!route.isUploadEnabled()) {
         response.buildError(403, server.getErrorPages(), route.getRoot());
         return;

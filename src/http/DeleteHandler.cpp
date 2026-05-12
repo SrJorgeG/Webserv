@@ -9,26 +9,12 @@ DeleteHandler::~DeleteHandler() {}
 
 void DeleteHandler::handle(const Request& request, Response& response,
                            const RouteConfig& route, const ServerConfig& server) {
-    (void)server;
+    
 
-    std::string path = route.getRoot();
     std::string decodedUri = StringUtils::decodeUrl(request.getUri());
-    size_t qpos = decodedUri.find('?');
-    if (qpos != std::string::npos) {
-        decodedUri = decodedUri.substr(0, qpos);
-    }
-    std::string routePath = route.getPath();
+    std::string normalizedPath = StringUtils::resolvePath(decodedUri, route.getPath(), route.getRoot());
 
-    if (routePath != "/" && StringUtils::startsWith(decodedUri, routePath)) {
-        if (decodedUri.size() > routePath.size()) {
-            decodedUri = decodedUri.substr(routePath.size());
-        }
-    }
-
-    std::string fullPath = FileUtils::joinPath(path, decodedUri);
-    std::string normalizedPath = FileUtils::normalizePath(fullPath);
-
-    if (!StringUtils::startsWith(normalizedPath, route.getRoot())) {
+    if (normalizedPath.empty()) {
         response.buildError(403, server.getErrorPages(), route.getRoot());
         return;
     }
