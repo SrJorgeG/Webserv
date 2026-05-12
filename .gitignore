@@ -1,0 +1,24 @@
+# Archivos compilados
+obj/
+webserv
+*.o
+*.a
+*.so
+
+# Archivos de prueba generados
+www/upload/*
+!www/upload/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
