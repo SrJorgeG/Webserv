@@ -10,13 +10,7 @@ GetHandler::~GetHandler() {}
 
 void GetHandler::handle(const Request& request, Response& response,
                         const RouteConfig& route, const ServerConfig& server) {
-    (void)server;
-
-    std::string uri = request.getUri();
-    // Strip query string for path resolution and redirect logic
-    size_t qpos = uri.find('?');
-    if (qpos != std::string::npos)
-        uri = uri.substr(0, qpos);
+    std::string uri = StringUtils::stripQueryString(request.getUri());
 
     std::string path = _resolvePath(uri, route);
 
@@ -125,28 +119,9 @@ void GetHandler::_generateAutoindex(const std::string& path, const std::string& 
 
 std::string GetHandler::_resolvePath(const std::string& rawUri, const RouteConfig& route) {
     std::string decodedUri = StringUtils::decodeUrl(rawUri);
-    size_t qpos = decodedUri.find('?');
-    if (qpos != std::string::npos) {
-        decodedUri = decodedUri.substr(0, qpos);
-    }
-
-    std::string routePath = route.getPath();
-
-    if (routePath != "/" && StringUtils::startsWith(decodedUri, routePath)) {
-        if (decodedUri.size() > routePath.size()) {
-            decodedUri = decodedUri.substr(routePath.size());
-        }
-    }
-    if (decodedUri.empty() || decodedUri[0] != '/') {
-        decodedUri = "/" + decodedUri;
-    }
-
-    std::string fullPath = FileUtils::joinPath(route.getRoot(), decodedUri);
-    std::string normalizedPath = FileUtils::normalizePath(fullPath);
-
-    if (!StringUtils::startsWith(normalizedPath, route.getRoot())) {
+    std::string result = StringUtils::resolvePath(decodedUri, route.getPath(), route.getRoot());
+    if (result.empty()) {
         return route.getRoot();
     }
-
-    return normalizedPath;
+    return result;
 }

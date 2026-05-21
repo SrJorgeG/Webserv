@@ -25,10 +25,15 @@ public:
     static bool startsWith(const std::string& str, const std::string& prefix);
     static bool endsWith(const std::string& str, const std::string& suffix);
 
+    static bool caseInsensitiveEqual(const std::string& a, const std::string& b);
+
     static std::string getExtension(const std::string& path);
     static std::string getMimeType(const std::string& extension);
 
     static std::string htmlEscape(const std::string& str);
+
+    static std::string stripQueryString(const std::string& uri);
+    static std::string resolvePath(const std::string& uri, const std::string& routePath, const std::string& root);
 
 private:
     StringUtils();

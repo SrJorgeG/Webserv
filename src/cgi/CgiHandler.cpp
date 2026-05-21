@@ -35,26 +35,7 @@ void CgiHandler::start(const Request& request, const RouteConfig& route,
         _setupEnvironment(request, route, server);
 
         // Resolve script path
-        std::string uri = request.getUri();
-        size_t qpos = uri.find('?');
-        if (qpos != std::string::npos) {
-            uri = uri.substr(0, qpos);
-        }
-        std::string routePath = route.getPath();
-        std::string scriptPath = uri;
-
-        if (routePath != "/" && StringUtils::startsWith(uri, routePath)) {
-            if (uri.size() > routePath.size()) {
-                scriptPath = uri.substr(routePath.size());
-            } else {
-                scriptPath = uri;
-            }
-        }
-        if (!scriptPath.empty() && scriptPath[0] == '/') {
-            scriptPath = scriptPath.substr(1);
-        }
-
-        std::string fullPath = FileUtils::joinPath(route.getRoot(), scriptPath);
+        std::string fullPath = StringUtils::resolvePath(request.getUri(), route.getPath(), route.getRoot());
 
         // Verify script exists
         if (!FileUtils::fileExists(fullPath)) {

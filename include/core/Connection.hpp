@@ -70,7 +70,6 @@ private:
     void _buildErrorResponse(int statusCode);
     const RouteConfig* _findMatchingRoute(const std::string& uri) const;
     std::string _resolvePath(const Request& request, const RouteConfig& route);
-    void _registerCgiPipes();
     void _unregisterCgiPipes();
 };
 

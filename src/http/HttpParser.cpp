@@ -128,12 +128,6 @@ ParseResult HttpParser::_parseHeaders(Request& request) {
     }
 }
 
-ParseResult HttpParser::_parseBody(Request& request) {
-    // TODO: Implement body parsing based on Content-Length
-    (void)request;
-    return PARSE_INCOMPLETE;
-}
-
 ParseResult HttpParser::_parseChunkedBody(Request& request) {
     while (true) {
         // Find the end of the chunk size line
