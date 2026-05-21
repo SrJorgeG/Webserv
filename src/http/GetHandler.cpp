@@ -14,12 +14,17 @@ void GetHandler::handle(const Request& request, Response& response,
 
     std::string path = _resolvePath(uri, route);
 
+    if (path.empty()) {
+        response.buildError(403, server.getErrorPages(), route.getRoot());
+        return;
+    }
+
     // If path doesn't exist, check whether appending a slash resolves to a directory
     // (e.g., /uploads -> /uploads/ when route root is a directory)
     if (!FileUtils::fileExists(path)) {
         if (!uri.empty() && uri[uri.size() - 1] != '/') {
             std::string altPath = _resolvePath(uri + "/", route);
-            if (FileUtils::isDirectory(altPath)) {
+            if (!altPath.empty() && FileUtils::isDirectory(altPath)) {
                 response.setStatus(301);
                 response.setHeader("Location", uri + "/");
                 response.setBody("");
@@ -119,9 +124,5 @@ void GetHandler::_generateAutoindex(const std::string& path, const std::string& 
 
 std::string GetHandler::_resolvePath(const std::string& rawUri, const RouteConfig& route) {
     std::string decodedUri = StringUtils::decodeUrl(rawUri);
-    std::string result = StringUtils::resolvePath(decodedUri, route.getPath(), route.getRoot());
-    if (result.empty()) {
-        return route.getRoot();
-    }
-    return result;
+    return StringUtils::resolvePath(decodedUri, route.getPath(), route.getRoot());
 }
