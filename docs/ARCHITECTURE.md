@@ -1,305 +1,352 @@
-# Arquitectura de Webserv
+# Architecture
 
-## Vision General
+## The Reactor pattern
 
-Webserv es un servidor HTTP/1.1 implementado en C++98 que utiliza un patron **Reactor** con **epoll** como mecanismo de I/O multiplexing. El servidor es completamente no-bloqueante y maneja multiples conexiones simultaneas a traves de una unica llamada a `epoll_wait()`.
+The Reactor is the single object that owns the `epoll` file descriptor and the map from fd to `EventHandler*`. Every file descriptor in the server — listening sockets, accepted client sockets, CGI stdin pipes, CGI stdout pipes — is registered here.
 
-## Patrones de Diseño
+```cpp
+// Reactor.cpp: main loop
+void Reactor::run() {
+    _running = true;
+    struct epoll_event events[MAX_EVENTS];
 
-### 1. Reactor Pattern
-Un unico objeto `Reactor` central monitorea todos los descriptores de archivo (sockets de escucha y conexiones de clientes) mediante `epoll`. Cuando un descriptor esta listo para lectura o escritura, el Reactor despacha el evento al handler correspondiente.
-
-**Ventajas:**
-- Desacopla la logica de I/O de la logica de aplicacion HTTP
-- Permite escalar a miles de conexiones concurrentes
-- Facilita el testing unitario de cada componente
-
-### 2. State Machine (Maquina de Estados)
-Cada conexion (`Connection`) mantiene un estado interno que determina que operacion realizar a continuacion:
-
-```
-READING_HEADERS  ->  READING_BODY  ->  PROCESSING  ->  WRITING_RESPONSE  ->  CLOSING
-       ^                                                              |
-       |______________________________________________________________|
-```
-
-- **READING_HEADERS**: Leyendo la linea de request y headers
-- **READING_BODY**: Leyendo el cuerpo del request (si aplica)
-- **PROCESSING**: El request esta completo, se procesa (rutas, CGI, etc.)
-- **WRITING_RESPONSE**: Enviando la respuesta al cliente
-- **CLOSING**: La conexion se cierra (limpia o error)
-
-### 3. Strategy Pattern para Metodos HTTP
-Los metodos HTTP (GET, POST, DELETE) se implementan como clases concretas que heredan de una interfaz comun `IHttpMethodHandler`. Esto permite anadir metodos facilmente y testearlos de forma aislada.
-
-## Diagrama de Componentes
-
-```
-+------------------------------------------------------------------+
-|                           webserv                                |
-|                                                                  |
-|  +-----------------+        +------------------------------+     |
-|  |  ConfigParser   |------->|     vector<ServerConfig>     |     |
-|  +-----------------+        +------------------------------+     |
-|                                                                  |
-|  +-----------------+        +------------------------------+     |
-|  |     Reactor     |<------>|     epoll instance           |     |
-|  |  (epoll_wait)   |        +------------------------------+     |
-|  +--------+--------+                                             |
-|           |                                                      |
-|     +-----+-----+                                                |
-|     |           |                                                |
-|  +--v---+   +---v----+                                           |
-|  |Server|   |Client  |                                           |
-|  |Socket|   |Connection                                          |
-|  +------+   +---+----+                                           |
-|                  |                                               |
-|          +-------+-------+                                       |
-|          |               |                                       |
-|      +---v----+     +----v----+                                  |
-|      |Request |     |Response |                                  |
-|      +---+----+     +----+----+                                  |
-|          |               |                                       |
-|      +---v------------+--+                                       |
-|      | HttpParser     |                                          |
-|      +---+------------+                                          |
-|          |                                                       |
-|  +-------+-------+-------+                                       |
-|  |       |       |       |                                       |
-|  |  +----v--+ +--v---+ +-v----+                                  |
-|  |  |Get    | |Post  | |Delete|                                  |
-|  |  |Handler| |Handler|Handler|                                  |
-|  |  +----+--+ +--+---+ +--+---+                                  |
-|  |       |       |       |                                       |
-|  +-------+-------+-------+                                       |
-|          |                                                       |
-|      +---v----------+                                            |
-|      | CgiHandler   | (solo para fork/execve)                    |
-|      +--------------+                                            |
-+------------------------------------------------------------------+
+    while (_running) {
+        int nfds = epoll_wait(_epollFd, events, MAX_EVENTS, 1000);
+        if (nfds < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        for (int i = 0; i < nfds; ++i) {
+            _dispatchEvent(events[i]);
+        }
+        _cleanupConnections();
+    }
+}
 ```
 
-## Estructura de Clases Principal
+`epoll_wait` blocks for at most 1000 ms. The timeout is not 0 (which would spin-poll) and not -1 (which would block forever). 1000 ms gives the cleanup loop a chance to check CGI timeouts and connection idle timeouts once per second even with no incoming events.
 
-### Core (Nucleo del Servidor)
+### Dispatch: pointer in event.data
 
-#### `Reactor`
-- **Responsabilidad**: Gestionar el ciclo de vida del servidor, el bucle principal de eventos y la instancia de epoll.
-- **Metodos principales**:
-  - `init()`: Crea la instancia epoll y registra los ServerSockets
-  - `run()`: Bucle principal `while(running) { epoll_wait(); dispatchEvents(); }`
-  - `registerHandler(int fd, EventHandler* handler, uint32_t events)`
-  - `modifyHandler(int fd, uint32_t events)`
-  - `removeHandler(int fd)`
-- **Notas**: Singleton o referencia pasada a los componentes que lo necesiten.
+Each `epoll_event` stores a `void* data.ptr` pointing to the `EventHandler` object responsible for that fd:
 
-#### `ServerSocket`
-- **Responsabilidad**: Escuchar en un puerto especifico y aceptar nuevas conexiones.
-- **Metodos principales**:
-  - `bindAndListen(port)`: Crea socket, bind, listen, set non-blocking
-  - `acceptConnection()`: Acepta nuevo cliente y crea objeto `Connection`
-- **Datos**: Puerto, direccion, backlog, socket fd
+```cpp
+void Reactor::registerHandler(int fd, EventHandler* handler, uint32_t events) {
+    struct epoll_event ev;
+    ev.events = events;
+    ev.data.ptr = handler;          // no fd lookup needed at dispatch time
+    epoll_ctl(_epollFd, EPOLL_CTL_ADD, fd, &ev);
+    _handlers[fd] = handler;
+}
 
-#### `Connection` : public EventHandler
-- **Responsabilidad**: Representar una conexion TCP con un cliente y gestionar su maquina de estados.
-- **Miembros**:
-  - `int _clientFd`
-  - `ConnectionState _state`
-  - `Request _request`
-  - `Response _response`
-  - `std::string _readBuffer`
-  - `std::string _writeBuffer`
-  - `size_t _bytesWritten`
-  - `time_t _lastActivity` (para timeout)
-- **Metodos**:
-  - `handleRead()`: Lee del socket al buffer, actualiza estado
-  - `handleWrite()`: Escribe del buffer al socket
-  - `handleError()`: Gestion de errores y cleanup
-  - `processRequest()`: Transicion de READING -> PROCESSING -> WRITING
-  - `close()`: Cierra fd y se elimina del Reactor
+void Reactor::_dispatchEvent(struct epoll_event& event) {
+    EventHandler* handler = static_cast<EventHandler*>(event.data.ptr);
+    if (!handler) return;
 
-#### `EventHandler` (Interfaz Abstracta)
+    // IMPORTANT: EPOLLIN must be checked before EPOLLHUP.
+    // When a CGI pipe's write end closes, epoll fires EPOLLHUP | EPOLLIN
+    // simultaneously if data is buffered. Reading must happen first or
+    // the CGI output is discarded.
+    if (event.events & EPOLLIN)             handler->handleRead();
+    if (event.events & EPOLLOUT)            handler->handleWrite();
+    if (event.events & (EPOLLERR | EPOLLHUP)) handler->handleError();
+}
+```
+
+The EPOLLIN-before-EPOLLHUP ordering is not an arbitrary style choice. It fixes a real bug: when the CGI child process exits, the kernel closes the write end of the output pipe. The read end (registered in epoll) gets `EPOLLHUP | EPOLLIN` if there is still buffered output. If EPOLLHUP is handled first, `handleError` closes the connection before `_processCgiRead` has consumed the data.
+
+### The EventHandler interface
+
 ```cpp
 class EventHandler {
 public:
     virtual ~EventHandler() {}
-    virtual void handleRead() = 0;
+    virtual void handleRead()  = 0;
     virtual void handleWrite() = 0;
     virtual void handleError() = 0;
-    virtual int getFd() const = 0;
+    virtual int getFd() const  = 0;
 };
 ```
 
-### HTTP (Protocolo y Logica)
+Two concrete implementations: `ServerSocket` (handles `accept`) and `Connection` (handles client I/O and CGI pipe I/O — the same object registers for all three).
 
-#### `Request`
-- **Responsabilidad**: Almacenar los datos parseados de un request HTTP.
-- **Miembros**:
-  - `std::string _method` (GET, POST, DELETE)
-  - `std::string _uri`
-  - `std::string _version` (HTTP/1.1)
-  - `std::map<std::string, std::string> _headers`
-  - `std::string _body`
-  - `bool _isChunked`
-  - `size_t _contentLength`
+## Connection lifecycle
 
-#### `Response`
-- **Responsabilidad**: Construir y almacenar una respuesta HTTP.
-- **Miembros**:
-  - `int _statusCode`
-  - `std::string _statusMessage`
-  - `std::map<std::string, std::string> _headers`
-  - `std::string _body`
-  - `bool _isReady`
-- **Metodos**:
-  - `setStatus(int code)`
-  - `setHeader(key, value)`
-  - `setBody(const std::string& body)`
-  - `toString() const`: Serializa a formato HTTP raw
+A `Connection` is a state machine. The state drives which code path executes when `epoll` fires on the client fd or either CGI pipe fd.
 
-#### `HttpParser`
-- **Responsabilidad**: Parsear datos raw del buffer en un objeto `Request`.
-- **Metodos**:
-  - `parse(const std::string& rawData, Request& outRequest)`: Devuelve `PARSE_OK`, `PARSE_INCOMPLETE`, `PARSE_ERROR`
-  - `parseRequestLine()`, `parseHeaders()`, `parseBody()`
-- **Notas**: Debe manejar requests parciales (el cliente envia datos en varios paquetes).
+```
+                      recv() returns 0
+                      (client disconnected)
+                              │
+READING_HEADERS ──────────────┼──────────────► CLOSING
+       │                      │
+       │  headers complete     │
+       ▼                      │
+READING_BODY ─────────────────┘
+       │
+       │  body complete (PARSE_OK)
+       ▼
+   PROCESSING ────── no CGI ──────────────────► WRITING_RESPONSE
+       │                                               │
+       │  CGI, POST body                               │  all bytes sent, keep-alive
+       ▼                                               ▼
+CGI_WRITING_TO_STDIN ──── body written ──► CGI_READING_FROM_STDOUT  READING_HEADERS
+                                                  │
+                                                  │  read() == 0 (EOF on pipe)
+                                                  ▼
+                                           WRITING_RESPONSE
+```
 
-#### `IHttpMethodHandler` (Interfaz)
+The state is stored as a `ConnectionState` enum in `Connection`. The Reactor never reads this state directly — it calls virtual methods on the `EventHandler` interface. The Connection's `handleRead` and `handleWrite` branch on state internally:
+
 ```cpp
-class IHttpMethodHandler {
-public:
-    virtual ~IHttpMethodHandler() {}
-    virtual void handle(const Request& request, Response& response, 
-                        const RouteConfig& route, const ServerConfig& server) = 0;
-};
+void Connection::handleRead() {
+    _isKeepAliveIdle = false;
+    updateLastActivity();
+    if ((_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN) && _cgiHandler) {
+        _processCgiRead();    // reading from CGI pipe, not from client socket
+    } else {
+        _processRead();       // reading HTTP request from client
+    }
+}
 ```
 
-#### `GetHandler`, `PostHandler`, `DeleteHandler`
-Implementaciones concretas de `IHttpMethodHandler`.
+The same `Connection` object is registered for the CGI pipe fds. When `epoll` fires on a pipe fd, `event.data.ptr` points to the same `Connection` instance, so `handleRead` is called on it. The state check at the top of `handleRead` routes to `_processCgiRead` instead of `_processRead`. The Connection knows which fd is which through `_cgiInputFd` and `_cgiOutputFd`.
 
-### Configuracion
+## Non-blocking I/O
 
-#### `ServerConfig`
-- **Responsabilidad**: Almacenar la configuracion de un bloque `server {}`.
-- **Miembros**:
-  - `std::vector<std::pair<std::string, int> > _listen` (host:port)
-  - `std::string _serverName`
-  - `std::map<int, std::string> _errorPages`
-  - `size_t _clientMaxBodySize`
-  - `std::vector<RouteConfig> _routes`
+Every fd is set non-blocking before registration with epoll.
 
-#### `RouteConfig`
-- **Responsabilidad**: Almacenar la configuracion de un bloque `location {}`.
-- **Miembros**:
-  - `std::string _path`
-  - `std::vector<std::string> _allowedMethods`
-  - `std::string _root`
-  - `bool _autoindex`
-  - `std::string _index`
-  - `std::string _redirect`
-  - `std::string _uploadStore`
-  - `std::map<std::string, std::string> _cgiHandlers` (extension -> interpreter)
+Client sockets: `accept` returns them blocking by default. `ServerSocket::acceptConnection` calls `fcntl(fd, F_SETFL, O_NONBLOCK)` immediately after `accept`.
 
-#### `ConfigParser`
-- **Responsabilidad**: Leer y parsear archivos de configuracion estilo NGINX.
-- **Metodos**:
-  - `parse(const std::string& filepath)`: Devuelve `vector<ServerConfig>`
-  - Validacion sintactica y semantica basica
+CGI pipes: Created with `pipe()`, which creates blocking fds. After `fork`, the parent calls:
 
-### CGI
-
-#### `CgiHandler`
-- **Responsabilidad**: Ejecutar scripts CGI mediante `fork()` + `execve()`.
-- **Metodos**:
-  - `execute(const Request& request, const RouteConfig& route, Response& response)`
-  - `setupEnvironment()`: Prepara variables de entorno (REQUEST_METHOD, QUERY_STRING, etc.)
-  - `readOutput()`: Lee la salida del CGI via pipe
-- **Notas**: El unico lugar donde se permite `fork()`. Se gestiona con `pipe()` y el proceso padre lee de forma no-bloqueante.
-
-#### `CgiEnvironment`
-- **Responsabilidad**: Construir el array de variables de entorno para CGI.
-
-### Utilidades
-
-#### `FileUtils`
-- `fileExists()`, `isDirectory()`, `readFile()`, `writeFile()`, `deleteFile()`
-
-#### `StringUtils`
-- `trim()`, `split()`, `toLower()`, `toString()`, `decodeUrl()`
-
-#### `Logger`
-- Logging basico a stdout/stderr con timestamps. Nivel: DEBUG, INFO, WARN, ERROR.
-
-## Flujo de Datos de una Peticion
-
-```
-1. Navegador envia HTTP request -> socket del cliente
-2. epoll_wait() detecta EPOLLIN en el fd del cliente
-3. Reactor llama a Connection::handleRead()
-4. Connection lee datos en _readBuffer
-5. HttpParser intenta parsear el buffer
-   - Si incompleto: vuelve a epoll_wait (estado READING_HEADERS/READING_BODY)
-   - Si completo: Request listo, transicion a PROCESSING
-6. Connection::processRequest():
-   a. Busca ServerConfig por puerto/host
-   b. Busca RouteConfig que haga match con URI
-   c. Valida metodo permitido
-   d. Si CGI -> CgiHandler::execute()
-   e. Si no -> IHttpMethodHandler correspondiente
-   f. Construye Response
-   g. Transicion a WRITING_RESPONSE
-7. epoll_wait() detecta EPOLLOUT (si el socket permite escritura)
-8. Connection::handleWrite() envia _writeBuffer
-9. Si se envio todo -> transicion a READING_HEADERS (keep-alive) o CLOSING
+```cpp
+fcntl(_inputPipe[1], F_SETFL, O_NONBLOCK);   // stdin write end
+fcntl(_outputPipe[0], F_SETFL, O_NONBLOCK);  // stdout read end
 ```
 
-## Gestion de Errores
+Note: `F_GETFL` followed by `F_SETFL` is the portable way to preserve existing flags, but the subject prohibits using `F_GETFL` on some platforms. Since these are fresh pipes with no pre-existing flags of interest, `F_SETFL` with `O_NONBLOCK` alone is safe.
 
-### Niveles de Error
-1. **Errores de parseo HTTP (400 Bad Request)**: Malformed request
-2. **Errores de recurso (404 Not Found)**: Archivo/ruta no existe
-3. **Errores de permisos (403 Forbidden)**: Metodo no permitido, acceso denegado
-4. **Errores de servidor (500 Internal Server Error)**: Excepciones no controladas, fallos de memoria
-5. **Errores de payload (413 Payload Too Large)**: Body excede client_max_body_size
+`FD_CLOEXEC` is set on the parent's pipe ends so they are not inherited by subsequent `fork` calls for other CGI requests:
 
-### Excepciones
-Usaremos excepciones de C++ para flujo de control de errores internos, pero **nunca para controlar el flujo normal**. Cada componente captura excepciones y las convierte en respuestas HTTP apropiadas.
+```cpp
+fcntl(_inputPipe[1], F_SETFD, FD_CLOEXEC);
+fcntl(_outputPipe[0], F_SETFD, FD_CLOEXEC);
+```
 
-### Memory Safety
-- Uso de `std::vector`, `std::string` en lugar de raw arrays/punteros cuando sea posible
-- RAII para file descriptors (`close()` en destructores)
-- Manejo cuidadoso de `fork()` + `execve()` en CGI para evitar leaks y zombies (waitpid)
+### Why errno is not checked after recv/write
 
-## Consideraciones de Concurrencia
+The subject explicitly requires that `errno` not be checked after non-blocking I/O. The implementation follows this:
 
-- **Single-threaded**: El servidor es single-threaded con I/O no-bloqueante. No hay mutex ni locks.
-- **No blocking**: Nunca se llama a `read()`/`write()`/`recv()`/`send()` sin que epoll indique que el fd esta listo (salvo para archivos regulares en disco, que estan exentos segun el subject).
-- **Timeouts**: Implementar timeout de conexion inactiva (ej. 60 segundos). El Reactor debe cerrar conexiones inactivas.
+```cpp
+// Connection.cpp _processRead()
+ssize_t bytesRead = recv(_clientFd, buffer, BUFFER_SIZE - 1, 0);
 
-## Compatibilidad C++98
+if (bytesRead < 0) {
+    // On non-blocking sockets, recv() returning -1 can mean either a real error
+    // or EAGAIN/EWOULDBLOCK (socket would block). We don't check errno per the
+    // subject requirement. Instead, we simply return and let epoll re-notify
+    // us when data is available. If it was a real error, the next epoll event
+    // will report EPOLLERR/EPOLLHUP and trigger handleError().
+    return;
+}
+```
 
-- No usar `auto`, ranged-for, lambdas, `nullptr` (usar `NULL`), `std::to_string` (implementar propio)
-- Usar `typename` donde sea necesario en templates
-- Preferir `<cstring>` sobre `<string.h>`, `<cstdlib>` sobre `<stdlib.h>`, etc.
-- Iteradores estilo C++98: `std::vector<T>::iterator`
+This is not a simplification that loses correctness. EAGAIN means "no data right now, try again later" — returning from `handleRead` and letting epoll re-notify is exactly the right response. A genuine socket error will produce EPOLLERR on the next `epoll_wait`, routing to `handleError` which sets state to CLOSING.
 
-## Division de Trabajo (Equipo de 2)
+## HTTP parsing
 
-| Persona | Modulos | Responsabilidades |
-|---------|---------|-------------------|
-| **Persona 1** | `core/`, `config/`, `utils/` | Reactor, epoll, ServerSocket, Connection state machine, parser de configuracion, utilidades, Makefile |
-| **Persona 2** | `http/`, `cgi/`, `www/`, `tests/` | Request, Response, HttpParser, handlers HTTP, CgiHandler, sitios de prueba, tests Python |
+`HttpParser` is a stateful incremental parser. It receives whatever bytes arrived in a single `recv` call and returns one of three outcomes: `PARSE_OK`, `PARSE_INCOMPLETE`, `PARSE_ERROR`.
 
-**Interfaz comun**: La clase `Connection` (Persona 1) necesita llamar a `HttpParser` y a los `IHttpMethodHandler` (Persona 2). Se acuerda la interfaz al inicio.
+```
+raw TCP bytes arriving in chunks:
+  "GET /index.ht"   → PARSE_INCOMPLETE (request line not complete)
+  "ml HTTP/1.1\r\n" → PARSE_INCOMPLETE (headers not complete)
+  "Host: localh"    → PARSE_INCOMPLETE
+  "ost\r\n\r\n"     → PARSE_OK
+```
 
-## Proximos Pasos
+The parser maintains an internal `_buffer`. Each call to `parse` appends the new data and attempts to advance through the request line, then headers, then body. State persists between calls: `_requestLineComplete` and `_headersComplete` flags prevent re-parsing already-consumed sections.
 
-1. Revisar y aprobar esta arquitectura
-2. Escribir los headers (.hpp) de todas las clases (contratos de interfaz)
-3. Implementar Makefile con flags C++98
-4. Implementar `Logger` y `StringUtils` (utilidades simples primero)
-5. Implementar `ConfigParser` y estructuras de config
-6. Implementar `Reactor` + `ServerSocket` + `Connection` basico (echo server)
-7. Implementar `HttpParser` + `Request` + `Response`
-8. Implementar handlers HTTP + CGI
-9. Tests y validacion
+After a successful parse, the Connection saves the leftover bytes (data that arrived beyond the end of this request) via `_parser.getLeftoverData()`. This handles pipelining: a client may send two requests back-to-back in the same TCP segment. The leftover is preserved in `_readBuffer` after the parser is reset, so the next request starts processing immediately without waiting for another `recv`.
+
+Chunked transfer encoding is decoded inside the parser. Each chunk's hex size line is parsed, the data extracted, and appended to the request body. The terminating zero-length chunk triggers `PARSE_OK`. The decoded body — not the raw chunked wire format — is what CGI and handlers receive.
+
+## Path resolution and security
+
+`StringUtils::resolvePath` is the single function that maps a request URI to a filesystem path:
+
+```cpp
+std::string StringUtils::resolvePath(const std::string& uri,
+                                     const std::string& routePath,
+                                     const std::string& root) {
+    std::string path = stripQueryString(uri);    // remove ?query before anything else
+
+    if (routePath != "/" && startsWith(path, routePath)) {
+        if (path.size() > routePath.size()) {
+            path = path.substr(routePath.size()); // strip location prefix
+        }
+        // exact match: path.size() == routePath.size(), keep as-is
+    }
+
+    if (path.empty() || path[0] != '/') {
+        path = "/" + path;
+    }
+
+    std::string fullPath = FileUtils::joinPath(root, path);
+    std::string normalizedPath = FileUtils::normalizePath(fullPath);
+
+    if (!startsWith(normalizedPath, root)) {
+        return "";          // path traversal attempt — return empty to signal 403
+    }
+
+    return normalizedPath;
+}
+```
+
+The key invariant: normalization must happen before the `startsWith(normalizedPath, root)` check, not after. If the check were applied to the un-normalized path, a URI like `/uploads/../etc/passwd` would pass the prefix check (`startsWith("/uploads/../etc/passwd", "/uploads")` is true) but resolve outside the root after normalization. By normalizing first, the check is applied to the actual filesystem path.
+
+The query string (`?key=value`) is stripped before any path operation. This is not optional: if the URI contains a `?`, the query becomes part of the filename being looked up, and filesystem lookups fail silently or return wrong results.
+
+The function returns an empty string for path-traversal attempts. Every call site checks for empty and returns 403.
+
+## CGI integration in the event loop
+
+CGI uses two pairs of pipes per request:
+
+```
+parent (server)                    child (CGI script)
+                                   
+_inputPipe[1]  ──── write ──────►  _inputPipe[0]  (stdin)
+_outputPipe[0] ◄─── read  ──────   _outputPipe[1] (stdout + stderr)
+```
+
+After `fork`, the parent closes the child's ends (`_inputPipe[0]`, `_outputPipe[1]`). The child closes the parent's ends and `dup2`s its ends to STDIN/STDOUT before `execve`.
+
+The parent registers the pipe fds in epoll immediately after fork:
+
+```cpp
+// Connection.cpp _processRequest() — CGI branch
+if (_request.getMethod() == "POST" && !_request.getBody().empty()) {
+    _state = CGI_WRITING_TO_STDIN;
+    _reactor.registerHandler(_cgiInputFd, this, EPOLLOUT);   // write body to CGI stdin
+    _reactor.registerHandler(_cgiOutputFd, this, EPOLLIN);   // read CGI stdout
+} else {
+    _state = CGI_READING_FROM_STDOUT;
+    close(_cgiInputFd); _cgiInputFd = -1;                   // no body to send
+    _reactor.registerHandler(_cgiOutputFd, this, EPOLLIN);
+}
+```
+
+The `this` pointer in `registerHandler` means the same `Connection` handles events on the pipe fds. When epoll fires on `_cgiOutputFd` with EPOLLIN, the dispatch calls `handler->handleRead()` on the Connection, which branches to `_processCgiRead`.
+
+Reading from the CGI output pipe uses a drain loop:
+
+```cpp
+void Connection::_processCgiRead() {
+    char buffer[BUFFER_SIZE];
+    while (true) {
+        ssize_t n = _cgiHandler->readOutputChunk(buffer, sizeof(buffer));
+        if (n < 0) break;    // EAGAIN: no more data right now
+        if (n > 0) continue; // data appended to _outputBuffer, keep draining
+
+        // n == 0: EOF — CGI exited and closed its stdout
+        // unregister pipes, call finishOutputRead, build HTTP response
+        ...
+        break;
+    }
+}
+```
+
+Draining until EAGAIN in a single epoll notification avoids re-entering the event loop unnecessarily for large CGI outputs. The loop exits on EAGAIN (not an error, just "buffer empty for now") or on EOF (n==0), which signals the CGI process has exited.
+
+## Cleanup loop
+
+After every `epoll_wait` batch, `_cleanupConnections` runs:
+
+```cpp
+void Reactor::_cleanupConnections() {
+    std::vector<int> toRemove;
+    for (...) {
+        Connection* conn = dynamic_cast<Connection*>(it->second);
+        if (conn) {
+            CgiHandler* cgi = conn->getCgiHandler();
+            if (cgi) cgi->checkTimeout();           // kills CGI after 30s
+
+            if (conn->isTimedOut() || conn->getFd() < 0 || conn->getState() == CLOSING) {
+                toRemove.push_back(it->first);
+            }
+        }
+    }
+    for (...) {
+        delete _handlers[fd];       // destructor closes fd, unregisters CGI pipes
+        removeHandler(fd);          // epoll_ctl DEL + erase from map
+    }
+}
+```
+
+Connections are not deleted during dispatch — only marked CLOSING. Deletion happens here, after the dispatch loop completes, avoiding iterator invalidation and use-after-free on the handler pointer.
+
+## Virtual host matching
+
+The Host header is parsed in `Connection::_matchVirtualHost` after the request is fully received. The Reactor's `matchVirtualHost` does two passes:
+
+1. Exact match: same port and same `server_name` as Host header value.
+2. Port-only match: any server listening on the same port.
+
+Fallback is the first config entry. This matches NGINX's behavior for the default server on a port.
+
+## Session management
+
+Every response sets a `webserv_session_id` cookie. The `SessionManager` is a singleton that maps session IDs to `std::map<std::string,std::string>` data stores. Session creation generates a UUID-like ID. Sessions expire after 300 seconds of inactivity; expired sessions are purged every 300 `epoll_wait` iterations (approximately every 5 minutes at idle).
+
+Sessions are not persisted to disk and are lost on server restart. This is intentional for a 42 project.
+
+## Component map
+
+```
+main.cpp
+  └── ConfigParser::parse()        → vector<ServerConfig>
+  └── Reactor::init()              → create epoll, bind ServerSockets
+  └── Reactor::run()               → event loop
+
+Reactor
+  ├── epoll_wait()
+  ├── _dispatchEvent()             → calls EventHandler virtual methods
+  ├── _cleanupConnections()        → timeout + CLOSING state cleanup
+  ├── matchVirtualHost()           → Host header → ServerConfig*
+  └── std::map<int,EventHandler*>  _handlers
+
+ServerSocket : EventHandler
+  ├── bindAndListen()              → socket + bind + listen + fcntl O_NONBLOCK
+  └── handleRead()                 → accept() → Reactor::addConnection()
+
+Connection : EventHandler
+  ├── _processRead()               → recv → HttpParser → _processRequest()
+  ├── _processWrite()              → send → keep-alive or CLOSING
+  ├── _processCgiWrite()           → write request body to CGI stdin pipe
+  ├── _processCgiRead()            → read CGI stdout pipe until EAGAIN or EOF
+  ├── _processRequest()            → route matching → method dispatch or CGI
+  └── _matchVirtualHost()          → update _serverConfig per Host header
+
+HttpParser
+  └── parse()                      → PARSE_OK / PARSE_INCOMPLETE / PARSE_ERROR
+      ├── _parseRequestLine()
+      ├── _parseHeaders()
+      └── _parseChunkedBody()
+
+GetHandler     → static file, directory listing, 301 redirect
+PostHandler    → multipart/form-data extraction, file write
+DeleteHandler  → path resolution, permission check, unlink
+
+CgiHandler
+  ├── start()         → setupPipes + setupEnvironment + forkAndExecute
+  ├── writeBodyChunk() → write to _inputPipe[1] (non-blocking)
+  ├── readOutputChunk() → read from _outputPipe[0] (non-blocking)
+  ├── finishOutputRead() → waitpid + _parseCgiOutput → Response
+  └── checkTimeout()  → kill after CGI_TIMEOUT seconds
+
+StringUtils::resolvePath()
+  └── stripQueryString → strip route prefix → joinPath → normalizePath → startsWith check
+```

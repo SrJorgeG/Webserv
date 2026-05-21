@@ -1,22 +1,154 @@
-# Configuracion del Servidor
+# Configuration
 
-## Formato del Archivo de Configuracion
+The configuration file uses an NGINX-inspired syntax with `server` and `location` blocks. The parser is strict: missing semicolons, unclosed braces, and unknown directives all cause the server to exit with a non-zero code and an error message.
 
-El archivo de configuracion sigue una sintaxis inspirada en NGINX. Es un formato declarativo basado en bloques y directivas.
+## Syntax rules
 
-### Reglas Lexicas
+- Blocks open with `{` and close with `}`.
+- Directives end with `;`.
+- Comments begin with `#` and run to end of line.
+- Tokens are whitespace-separated. Values with spaces are not supported (not required by the subject).
+- There are no global directives outside of `server` blocks.
 
-- Los bloques se abren con `{` y cierran con `}`
-- Las directivas terminan con `;`
-- Los comentarios empiezan con `#` y van hasta el final de la linea
-- Las cadenas pueden estar entre comillas dobles `"` o simples `'` (opcional para tokens simples, obligatorio para valores con espacios)
-- Las directivas dentro de un bloque `server` aplican a ese servidor virtual
-- Las directivas dentro de un bloque `location` aplican a esa ruta especifica
+## Server block directives
 
-### Ejemplo Completo
+### `listen`
 
 ```nginx
-# Servidor por defecto
+listen 8080;
+listen 127.0.0.1:8080;
+listen 0.0.0.0:8080;
+```
+
+Specifies the address and port to bind. A bare port number binds to `0.0.0.0` (all interfaces). A `host:port` form binds to a specific interface. A single `server` block can have multiple `listen` directives — each creates a separate `ServerSocket`.
+
+If two server blocks listen on the same port, the first one acts as the default for that port. The active server config is selected per-request by the `Host` header (see virtual hosting below).
+
+### `server_name`
+
+```nginx
+server_name localhost;
+server_name example.com;
+```
+
+Used for virtual host matching. The value is compared case-sensitively to the hostname in the `Host` header (port stripped). If no server has a matching `server_name`, the first server block listening on the requested port is used.
+
+An empty or absent `server_name` matches any host on the port — effectively the default server for that port.
+
+### `client_max_body_size`
+
+```nginx
+client_max_body_size 10M;
+client_max_body_size 512K;
+client_max_body_size 1G;
+client_max_body_size 1048576;   # plain bytes
+```
+
+Accepted suffixes: `K`/`k` (kilobytes), `M`/`m` (megabytes), `G`/`g` (gigabytes). No suffix means bytes. Default is 1 MB if omitted.
+
+The check is applied at two points: when `Content-Length` exceeds the limit, the server returns 413 immediately without reading the body. When the accumulated `_readBuffer` exceeds the limit (e.g. chunked uploads), the buffer is cleared and 413 is returned.
+
+### `error_page`
+
+```nginx
+error_page 404 /errors/404.html;
+error_page 500 502 503 504 /errors/50x.html;
+```
+
+Multiple status codes can share one file. The path is relative to the `root` of the first location in the server block. If the error page file cannot be read, a built-in HTML error page is served instead. The built-in page is always available and does not depend on the filesystem.
+
+## Location block directives
+
+A `location` block defines how to handle requests whose URI starts with the given path prefix.
+
+```nginx
+location /prefix { ... }
+```
+
+Matching is longest-prefix: if `/cgi-bin/py` and `/cgi-bin` are both defined, a request for `/cgi-bin/py/script.py` matches `/cgi-bin/py`. If no location matches, 404 is returned. There is no implicit catch-all; a `location /` block must be present to handle all unmatched requests.
+
+### `root`
+
+```nginx
+root www/default;
+root /var/www/html;
+```
+
+The filesystem directory from which files are served. Paths are relative to the working directory of the process (where the binary was launched), not the config file's directory.
+
+How the filesystem path is computed from a URI:
+
+```
+location /uploads { root www/upload; }
+Request: GET /uploads/foo/bar.txt
+
+step 1: strip location prefix   /uploads/foo/bar.txt → /foo/bar.txt
+step 2: join with root          www/upload + /foo/bar.txt → www/upload/foo/bar.txt
+step 3: normalize               resolve .. components, collapse //
+step 4: security check          must still start with "www/upload"
+```
+
+Exact-match case: `GET /uploads` with `location /uploads` leaves an empty suffix after stripping, which becomes `/`, resolving to the root directory itself.
+
+### `index`
+
+```nginx
+index index.html;
+```
+
+When a URI resolves to a directory, the server looks for this file inside that directory and serves it. If the file does not exist, behavior falls through to `autoindex`. Only one filename is supported.
+
+### `autoindex`
+
+```nginx
+autoindex on;
+autoindex off;
+```
+
+When `on`, requests for a directory that has no index file produce an HTML directory listing. When `off` (the default), such requests return 403.
+
+### `allow_methods`
+
+```nginx
+allow_methods GET;
+allow_methods GET POST;
+allow_methods POST GET DELETE;
+```
+
+Whitelist of permitted HTTP methods for this location. Any other method returns 405 Method Not Allowed. The check is applied after route matching and redirect resolution, before handler dispatch.
+
+### `redirect`
+
+```nginx
+redirect /new-path;
+redirect https://example.com/;
+```
+
+Issues a 301 Moved Permanently with `Location: <value>`. The redirect is issued before method checking — even disallowed methods get redirected. No body is sent (Content-Length: 0).
+
+### `upload_store`
+
+```nginx
+upload_store www/upload;
+```
+
+Directory where POST uploads are saved. If absent, uploads go to `root`. The directory is created if it does not exist. POST to a location without `upload_store` and without explicit `upload_store` defined returns 403.
+
+### `cgi_extension`
+
+```nginx
+cgi_extension .py /usr/bin/python3;
+cgi_extension .sh /bin/bash;
+cgi_extension .php /usr/bin/php-cgi;
+```
+
+Maps a file extension to an interpreter. When a GET or POST request resolves to a file with the given extension, the server runs `execve(interpreter, [interpreter, scriptpath, NULL], envp)` instead of serving the file directly. Multiple `cgi_extension` directives are allowed in one location.
+
+The interpreter path must be absolute. The script path is `chdir`'d to the script's directory before `execve`, so relative paths inside the script work correctly.
+
+## Complete example: default.conf
+
+```nginx
 server {
     listen 8080;
     server_name localhost;
@@ -25,216 +157,133 @@ server {
     error_page 404 /errors/404.html;
     error_page 500 502 503 504 /errors/50x.html;
 
-    # Ruta raiz
     location / {
-        root /var/www/html;
+        root www/default;
         index index.html;
         autoindex off;
         allow_methods GET POST;
     }
 
-    # Directorio de uploads
     location /uploads {
-        root /var/www/uploads;
+        root www/upload;
         allow_methods POST GET DELETE;
-        upload_store /var/www/uploads;
+        upload_store www/upload;
         autoindex on;
     }
 
-    # Redireccion
-    location /old-path {
-        redirect /new-path;
+    location /old {
+        redirect /;
         allow_methods GET;
     }
 
-    # CGI con Python
     location /cgi-bin {
-        root /var/www/cgi-bin;
+        root cgi-bin;
         allow_methods GET POST;
         cgi_extension .py /usr/bin/python3;
     }
 
-    # CGI con PHP (bonus - multiples CGIs)
-    location ~ \.php$ {
-        root /var/www/php;
-        allow_methods GET POST;
-        cgi_extension .php /usr/bin/php-cgi;
-    }
-}
-
-# Segundo servidor (multiples puertos)
-server {
-    listen 8081;
-    server_name secondary.local;
-
-    location / {
-        root /var/www/secondary;
-        index index.html;
+    location /login.html {
+        root www/default;
         allow_methods GET;
     }
 }
 ```
 
-## Directivas Globales (fuera de server)
+## Multiple CGI types in separate locations
 
-No hay directivas globales en nuestra implementacion. Todo esta contenido en bloques `server`.
-
-## Directivas del Bloque `server`
-
-| Directiva | Tipo | Requerida | Descripcion |
-|-----------|------|-----------|-------------|
-| `listen` | `host:port` o `port` | Si | Puerto (y opcionalmente host) de escucha. Ej: `listen 8080`, `listen 127.0.0.1:8080` |
-| `server_name` | string | No | Nombre del servidor (virtual host). Default: `""` |
-| `client_max_body_size` | size (ej: `10M`, `1K`) | No | Tamano maximo del body del request. Default: `1M` |
-| `error_page` | `code [...] uri` | No | Pagina de error personalizada para codigos especificos |
-| `location` | bloque | No | Bloque de configuracion de ruta |
-
-## Directivas del Bloque `location`
-
-| Directiva | Tipo | Requerida | Descripcion |
-|-----------|------|-----------|-------------|
-| `path` | string (implicito) | Si | La ruta del location (ej: `/`, `/uploads`, `/api`) |
-| `root` | path | No (default heredado) | Directorio raiz para servir archivos en esta ruta |
-| `index` | filename | No | Archivo por defecto cuando se solicita un directorio |
-| `autoindex` | `on` \| `off` | No | Mostrar listado de directorios. Default: `off` |
-| `allow_methods` | lista de metodos | No | Metodos HTTP permitidos. Default: `GET` |
-| `redirect` | uri | No | Redireccion HTTP (301 Moved Permanently) |
-| `upload_store` | path | No | Directorio donde guardar archivos subidos |
-| `cgi_extension` | `ext interpreter` | No | Extension de archivo CGI y su interprete |
-
-## Reglas de Resolucion de Rutas
-
-### Matching de Location
-
-Cuando llega un request con URI `/kapouet/pouic/toto/pouet`:
-
-1. Se busca el bloque `server` correspondiente (por `listen` y `server_name`)
-2. Dentro del servidor, se busca el `location` con el **prefijo mas largo** que haga match
-   - Ejemplo: `/kapouet` hace match con `/kapouet/pouic/toto/pouet`
-   - Si existe `/kapouet/pouic`, tiene prioridad sobre `/kapouet`
-3. Si no hay match exacto ni prefijo, se usa el location `/` (si existe)
-
-### Resolucion de Archivos
-
-Con `location /kapouet { root /tmp/www; }`:
-
-```
-Request URI: /kapouet/pouic/toto/pouet
-Ruta en disco: /tmp/www/pouic/toto/pouet
-```
-
-Nota: La parte del path del location se elimina y se anade el resto al root.
-
-### Directory Listing (Autoindex)
-
-Si `autoindex on` y el request apunta a un directorio:
-1. Si existe el archivo `index` (ej: `index.html`), se sirve ese archivo
-2. Si no, se genera un HTML con el listado de archivos del directorio
-
-Si `autoindex off` y no hay index -> `403 Forbidden`
-
-## Paginas de Error por Defecto
-
-Si no se especifica `error_page`, el servidor usa paginas de error embebidas en codigo:
-
-```html
-<!DOCTYPE html>
-<html>
-<head><title>404 Not Found</title></head>
-<body>
-<center><h1>404 Not Found</h1></center>
-<hr><center>webserv/1.0</center>
-</body>
-</html>
-```
-
-Las paginas por defecto deben existir para al menos:
-- 400 Bad Request
-- 403 Forbidden
-- 404 Not Found
-- 405 Method Not Allowed
-- 413 Payload Too Large
-- 500 Internal Server Error
-- 502 Bad Gateway (CGI error)
-- 504 Gateway Timeout (CGI timeout)
-
-## Validaciones del Parser
-
-El parser debe detectar y reportar errores como:
-
-- Bloque sin cerrar
-- Directiva sin `;`
-- `listen` sin puerto o con puerto invalido
-- `allow_methods` con metodos no soportados
-- `client_max_body_size` con formato invalido
-- `location` duplicado exacto en el mismo server
-- Valores vacios donde no se permiten
-
-**Comportamiento ante errores de config**: El servidor imprime el error y termina con exit code != 0.
-
-## Archivo de Configuracion por Defecto
-
-Si el usuario no proporciona archivo de configuracion:
-
-```bash
-./webserv                    # Usa conf/default.conf
-./webserv mi_config.conf     # Usa mi_config.conf
-```
-
-El archivo `conf/default.conf` debe estar incluido en la entrega y contener un servidor funcional en el puerto 8080.
-
-## Notas de Implementacion
-
-### Tamano de Body
-
-`client_max_body_size` acepta sufijos:
-- `K` o `k`: Kilobytes
-- `M` o `m`: Megabytes
-- `G` o `g`: Gigabytes
-- Sin sufijo: Bytes
-
-Ejemplos: `1K`, `10M`, `1G`, `1024`
-
-### Herencia
-
-Las directivas de `server` no se heredan automaticamente en `location`. Cada location debe ser autocontenido. Sin embargo, para simplificar:
-- Si `root` no se especifica en location, se puede usar un valor por defecto del sistema o requerirlo explicitamente
-- Recomendacion: Cada location debe tener su `root` explicito para evitar confusion
-
-### Multiples Listen
-
-Un server puede escuchar en multiples puertos:
+The `multi_cgi.conf` test config demonstrates routing different extensions to different locations:
 
 ```nginx
 server {
     listen 8080;
-    listen 8081;
-    listen 127.0.0.1:9090;
+    server_name localhost;
+    client_max_body_size 10M;
+
+    location / {
+        root www/default;
+        index index.html;
+        allow_methods GET POST;
+    }
+
+    location /uploads {
+        root www/upload;
+        allow_methods POST GET DELETE;
+        upload_store www/upload;
+        autoindex on;
+    }
+
+    location /cgi-bin/py {
+        root cgi-bin;
+        allow_methods GET POST;
+        cgi_extension .py /usr/bin/python3;
+    }
+
+    location /cgi-bin/php {
+        root cgi-bin;
+        allow_methods GET POST;
+        cgi_extension .php /usr/bin/php-cgi;
+    }
+
+    location /cgi-bin/sh {
+        root cgi-bin;
+        allow_methods GET;
+        cgi_extension .sh /bin/bash;
+    }
+}
+```
+
+## Multiple virtual hosts on the same port
+
+```nginx
+server {
+    listen 8080;
+    server_name app.example.com;
+
+    location / {
+        root www/app;
+        index index.html;
+        allow_methods GET;
+    }
+}
+
+server {
+    listen 8080;
+    server_name static.example.com;
+
+    location / {
+        root www/static;
+        autoindex on;
+        allow_methods GET;
+    }
+}
+```
+
+Both servers bind port 8080. The Host header selects which config applies. A request without a Host header, or with a Host not matching either `server_name`, is handled by the first block.
+
+## Multiple listen addresses
+
+```nginx
+server {
+    listen 8080;
+    listen 127.0.0.1:8081;
+    listen 0.0.0.0:9090;
+    server_name localhost;
     ...
 }
 ```
 
-Esto crea multiples `ServerSocket` dentro del mismo `ServerConfig`.
+Creates three `ServerSocket` objects. All share the same `ServerConfig`. Connections on any of the three addresses are handled identically.
 
-## Estructuras de Datos Propuestas
+## Edge cases
 
-```cpp
-struct RouteConfig {
-    std::string path;
-    std::string root;
-    std::string index;
-    bool autoindex;
-    std::vector<std::string> allowedMethods;
-    std::string redirect;
-    std::string uploadStore;
-    std::map<std::string, std::string> cgiHandlers; // ".py" -> "/usr/bin/python3"
-};
+**`listen` without host**: `listen 8080` binds `0.0.0.0:8080`. The server accepts connections on all interfaces.
 
-struct ServerConfig {
-    std::vector<std::pair<std::string, int> > listens; // (host, port)
-    std::string serverName;
-    size_t clientMaxBodySize;
-    std::map<int, std::string> errorPages; // 404 -> "/errors/404.html"
-    std::vector<RouteConfig> routes;
-};
-```
+**Relative `root`**: `root www/default` is resolved relative to the working directory when the binary is invoked. If you `cd /tmp && /home/user/webserv/webserv`, the root is `/tmp/www/default`. Run from the project root.
+
+**`root` not specified in a location**: The location block is accepted by the parser. If a request reaches it and tries to serve a file, the root will be empty, causing an empty filesystem path. The security check in `resolvePath` returns empty string, which yields 403.
+
+**Duplicate location paths**: The parser does not reject duplicate location paths in the same server block. The last one defined wins, as routes are stored in a vector and matched by longest prefix. Avoid duplicates.
+
+**`redirect` takes precedence over everything**: A location with `redirect` never reaches method checking or file serving. The 301 is issued immediately after route matching.
+
+**Directory URI without trailing slash**: If a URI resolves to a directory but lacks a trailing slash (e.g., `GET /uploads`), the server issues a 301 to `URI + "/"`. This is automatic behavior in `GetHandler`, not a configuration option.
