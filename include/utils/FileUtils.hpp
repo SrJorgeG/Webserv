@@ -24,6 +24,8 @@ public:
     static std::string joinPath(const std::string& a, const std::string& b);
     static std::string normalizePath(const std::string& path);
     static std::string getParentDirectory(const std::string& path);
+    static bool getFileStat(const std::string& path, struct stat& st);
+    static std::string readFileRange(const std::string& path, size_t offset, size_t length);
 
 private:
     FileUtils();

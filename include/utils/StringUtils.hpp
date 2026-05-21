@@ -35,6 +35,9 @@ public:
     static std::string stripQueryString(const std::string& uri);
     static std::string resolvePath(const std::string& uri, const std::string& routePath, const std::string& root);
 
+    static std::string base64Decode(const std::string& encoded);
+    static std::string toHex(unsigned long value);
+
 private:
     StringUtils();
     ~StringUtils();

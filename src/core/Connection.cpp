@@ -1,7 +1,10 @@
 #include "core/Connection.hpp"
 #include "core/Reactor.hpp"
 #include "http/GetHandler.hpp"
+#include "http/HeadHandler.hpp"
+#include "http/OptionsHandler.hpp"
 #include "http/PostHandler.hpp"
+#include "http/PutHandler.hpp"
 #include "http/DeleteHandler.hpp"
 #include "utils/Logger.hpp"
 #include "utils/StringUtils.hpp"
@@ -84,7 +87,9 @@ void Connection::closeConnection() {
 }
 
 bool Connection::isTimedOut() const {
-    time_t timeout = _isKeepAliveIdle ? KEEP_ALIVE_TIMEOUT : CONNECTION_TIMEOUT;
+    time_t timeout = _isKeepAliveIdle
+        ? static_cast<time_t>(_serverConfig->getKeepaliveTimeout())
+        : static_cast<time_t>(CONNECTION_TIMEOUT);
     return (time(NULL) - _lastActivity) > timeout;
 }
 
@@ -246,6 +251,18 @@ void Connection::_processRequest() {
         return;
     }
 
+    // Basic Auth check — must happen after method check and before any handler
+    if (route->requiresAuth() && !_checkBasicAuth(*route)) {
+        _response.clear();
+        _response.setStatus(401);
+        _response.setHeader("WWW-Authenticate",
+            "Basic realm=\"" + route->getAuthRealm() + "\"");
+        _response.setHeader("Content-Length", "0");
+        _response.setReady(true);
+        _finalizeResponse();
+        return;
+    }
+
     std::string path = _resolvePath(_request, *route);
     std::string ext = StringUtils::getExtension(path);
 
@@ -290,8 +307,17 @@ void Connection::_processRequest() {
     if (_request.getMethod() == "GET") {
         GetHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
+    } else if (_request.getMethod() == "HEAD") {
+        HeadHandler handler;
+        handler.handle(_request, _response, *route, *_serverConfig);
+    } else if (_request.getMethod() == "OPTIONS") {
+        OptionsHandler handler;
+        handler.handle(_request, _response, *route, *_serverConfig);
     } else if (_request.getMethod() == "POST") {
         PostHandler handler;
+        handler.handle(_request, _response, *route, *_serverConfig);
+    } else if (_request.getMethod() == "PUT") {
+        PutHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
     } else if (_request.getMethod() == "DELETE") {
         DeleteHandler handler;
@@ -434,4 +460,22 @@ void Connection::_finalizeResponse() {
     _writeBuffer = _response.toString();
     _state = WRITING_RESPONSE;
     _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+}
+
+// Validates HTTP Basic Auth credentials.
+// The Authorization header value is "Basic <base64(user:password)>".
+// We decode it, split on ':', and compare with the configured credentials.
+bool Connection::_checkBasicAuth(const RouteConfig& route) {
+    std::string authHeader = _request.getHeader("Authorization");
+    if (authHeader.empty()) return false;
+    if (authHeader.substr(0, 6) != "Basic ") return false;
+
+    std::string decoded = StringUtils::base64Decode(authHeader.substr(6));
+    size_t sep = decoded.find(':');
+    if (sep == std::string::npos) return false;
+
+    std::string user = decoded.substr(0, sep);
+    std::string pass = decoded.substr(sep + 1);
+
+    return user == route.getAuthUser() && pass == route.getAuthPassword();
 }

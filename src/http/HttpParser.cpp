@@ -209,7 +209,7 @@ ParseResult HttpParser::_parseChunkedBody(Request& request) {
 
 bool HttpParser::_isValidMethod(const std::string& method) const {
     return method == "GET" || method == "POST" || method == "DELETE" ||
-           method == "HEAD" || method == "PUT";
+           method == "HEAD" || method == "PUT" || method == "OPTIONS";
 }
 
 bool HttpParser::_isValidUri(const std::string& uri) const {

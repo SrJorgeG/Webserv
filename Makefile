@@ -17,7 +17,10 @@ SRCS = \
 	$(SRC_DIR)/http/HttpParser.cpp \
 	$(SRC_DIR)/http/StatusCodes.cpp \
 	$(SRC_DIR)/http/GetHandler.cpp \
+	$(SRC_DIR)/http/HeadHandler.cpp \
+	$(SRC_DIR)/http/OptionsHandler.cpp \
 	$(SRC_DIR)/http/PostHandler.cpp \
+	$(SRC_DIR)/http/PutHandler.cpp \
 	$(SRC_DIR)/http/DeleteHandler.cpp \
 	$(SRC_DIR)/http/SessionManager.cpp \
 	$(SRC_DIR)/config/ConfigParser.cpp \

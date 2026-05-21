@@ -220,3 +220,34 @@ std::string StringUtils::resolvePath(const std::string& uri, const std::string& 
 
     return normalizedPath;
 }
+
+std::string StringUtils::toHex(unsigned long value) {
+    if (value == 0) return "0";
+    std::string result;
+    const char* digits = "0123456789abcdef";
+    while (value > 0) {
+        result = digits[value & 0xf] + result;
+        value >>= 4;
+    }
+    return result;
+}
+
+std::string StringUtils::base64Decode(const std::string& encoded) {
+    static const std::string table =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    int val = 0, bits = -8;
+    for (size_t i = 0; i < encoded.size(); ++i) {
+        char c = encoded[i];
+        if (c == '=') break;
+        size_t pos = table.find(c);
+        if (pos == std::string::npos) continue;
+        val = (val << 6) + static_cast<int>(pos);
+        bits += 6;
+        if (bits >= 0) {
+            result += static_cast<char>((val >> bits) & 0xFF);
+            bits -= 8;
+        }
+    }
+    return result;
+}

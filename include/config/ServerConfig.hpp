@@ -19,6 +19,7 @@ public:
     size_t getClientMaxBodySize() const;
     const std::map<int, std::string>& getErrorPages() const;
     const std::vector<RouteConfig>& getRoutes() const;
+    int getKeepaliveTimeout() const;
 
     // Setters
     void addListen(const std::string& host, int port);
@@ -26,6 +27,7 @@ public:
     void setClientMaxBodySize(size_t size);
     void addErrorPage(int code, const std::string& path);
     void addRoute(const RouteConfig& route);
+    void setKeepaliveTimeout(int seconds);
 
     const RouteConfig* findRoute(const std::string& uri) const;
     std::string getErrorPage(int code) const;
@@ -36,6 +38,7 @@ private:
     size_t _clientMaxBodySize;
     std::map<int, std::string> _errorPages;
     std::vector<RouteConfig> _routes;
+    int _keepaliveTimeout;
 };
 
 #endif

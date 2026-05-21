@@ -20,6 +20,10 @@ RouteConfig& RouteConfig::operator=(const RouteConfig& other) {
         _redirect = other._redirect;
         _uploadStore = other._uploadStore;
         _cgiHandlers = other._cgiHandlers;
+        _tryFiles = other._tryFiles;
+        _authRealm = other._authRealm;
+        _authUser = other._authUser;
+        _authPassword = other._authPassword;
     }
     return *this;
 }
@@ -32,6 +36,10 @@ const std::vector<std::string>& RouteConfig::getAllowedMethods() const { return 
 const std::string& RouteConfig::getRedirect() const { return _redirect; }
 const std::string& RouteConfig::getUploadStore() const { return _uploadStore; }
 const std::map<std::string, std::string>& RouteConfig::getCgiHandlers() const { return _cgiHandlers; }
+const std::vector<std::string>& RouteConfig::getTryFiles() const { return _tryFiles; }
+const std::string& RouteConfig::getAuthRealm() const { return _authRealm; }
+const std::string& RouteConfig::getAuthUser() const { return _authUser; }
+const std::string& RouteConfig::getAuthPassword() const { return _authPassword; }
 
 void RouteConfig::setPath(const std::string& path) { _path = path; }
 void RouteConfig::setRoot(const std::string& root) { _root = root; }
@@ -43,6 +51,10 @@ void RouteConfig::setUploadStore(const std::string& path) { _uploadStore = path;
 void RouteConfig::addCgiHandler(const std::string& extension, const std::string& interpreter) {
     _cgiHandlers[extension] = interpreter;
 }
+void RouteConfig::addTryFile(const std::string& path) { _tryFiles.push_back(path); }
+void RouteConfig::setAuthRealm(const std::string& realm) { _authRealm = realm; }
+void RouteConfig::setAuthUser(const std::string& user) { _authUser = user; }
+void RouteConfig::setAuthPassword(const std::string& password) { _authPassword = password; }
 
 bool RouteConfig::isMethodAllowed(const std::string& method) const {
     if (_allowedMethods.empty()) return true;
@@ -74,4 +86,8 @@ std::string RouteConfig::getCgiInterpreter(const std::string& extension) const {
 
 bool RouteConfig::isUploadEnabled() const {
     return !_uploadStore.empty();
+}
+
+bool RouteConfig::requiresAuth() const {
+    return !_authRealm.empty();
 }

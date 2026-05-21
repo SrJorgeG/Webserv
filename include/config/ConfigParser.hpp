@@ -34,6 +34,7 @@ private:
     void _parseServerNameDirective(ServerConfig& server);
     void _parseClientMaxBodySizeDirective(ServerConfig& server);
     void _parseErrorPageDirective(ServerConfig& server);
+    void _parseKeepaliveTimeoutDirective(ServerConfig& server);
     void _parseRootDirective(RouteConfig& route);
     void _parseIndexDirective(RouteConfig& route);
     void _parseAutoindexDirective(RouteConfig& route);
@@ -41,6 +42,10 @@ private:
     void _parseRedirectDirective(RouteConfig& route);
     void _parseUploadStoreDirective(RouteConfig& route);
     void _parseCgiExtensionDirective(RouteConfig& route);
+    void _parseTryFilesDirective(RouteConfig& route);
+    void _parseAuthBasicDirective(RouteConfig& route);
+    void _parseAuthBasicUserDirective(RouteConfig& route);
+    void _parseAuthBasicPasswordDirective(RouteConfig& route);
 
     void _validateConfig(const std::vector<ServerConfig>& servers);
     size_t _parseSize(const std::string& value);

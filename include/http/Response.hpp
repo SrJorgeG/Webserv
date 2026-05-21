@@ -25,7 +25,10 @@ public:
     // Getters
     int getStatusCode() const;
     const std::string& getBody() const;
+    std::string getHeader(const std::string& key) const;
     bool isReady() const;
+
+    void clearBody();
 
     void setReady(bool ready);
 

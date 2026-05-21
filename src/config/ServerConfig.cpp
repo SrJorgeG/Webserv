@@ -2,7 +2,7 @@
 #include "utils/StringUtils.hpp"
 
 ServerConfig::ServerConfig()
-    : _clientMaxBodySize(DEFAULT_MAX_BODY_SIZE) {}
+    : _clientMaxBodySize(DEFAULT_MAX_BODY_SIZE), _keepaliveTimeout(KEEP_ALIVE_TIMEOUT) {}
 
 ServerConfig::~ServerConfig() {}
 
@@ -17,6 +17,7 @@ ServerConfig& ServerConfig::operator=(const ServerConfig& other) {
         _clientMaxBodySize = other._clientMaxBodySize;
         _errorPages = other._errorPages;
         _routes = other._routes;
+        _keepaliveTimeout = other._keepaliveTimeout;
     }
     return *this;
 }
@@ -60,6 +61,9 @@ void ServerConfig::addErrorPage(int code, const std::string& path) {
 void ServerConfig::addRoute(const RouteConfig& route) {
     _routes.push_back(route);
 }
+
+int ServerConfig::getKeepaliveTimeout() const { return _keepaliveTimeout; }
+void ServerConfig::setKeepaliveTimeout(int seconds) { _keepaliveTimeout = seconds; }
 
 const RouteConfig* ServerConfig::findRoute(const std::string& uri) const {
     const RouteConfig* bestMatch = NULL;

@@ -85,6 +85,16 @@ void Response::setCookie(const std::string& name, const std::string& value,
 
 int Response::getStatusCode() const { return _statusCode; }
 const std::string& Response::getBody() const { return _body; }
+
+std::string Response::getHeader(const std::string& key) const {
+    std::map<std::string, std::string>::const_iterator it = _headers.find(key);
+    return it != _headers.end() ? it->second : "";
+}
+
+void Response::clearBody() {
+    _body.clear();
+}
+
 bool Response::isReady() const { return _isReady; }
 void Response::setReady(bool ready) { _isReady = ready; }
 

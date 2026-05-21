@@ -130,6 +130,8 @@ ServerConfig ConfigParser::_parseServerBlock() {
             _parseServerNameDirective(server);
         } else if (directive == "client_max_body_size") {
             _parseClientMaxBodySizeDirective(server);
+        } else if (directive == "keepalive_timeout") {
+            _parseKeepaliveTimeoutDirective(server);
         } else if (directive == "error_page") {
             _parseErrorPageDirective(server);
         } else if (directive == "location") {
@@ -173,6 +175,14 @@ RouteConfig ConfigParser::_parseLocationBlock(const std::string& path) {
             _parseUploadStoreDirective(route);
         } else if (directive == "cgi_extension") {
             _parseCgiExtensionDirective(route);
+        } else if (directive == "try_files") {
+            _parseTryFilesDirective(route);
+        } else if (directive == "auth_basic") {
+            _parseAuthBasicDirective(route);
+        } else if (directive == "auth_basic_user") {
+            _parseAuthBasicUserDirective(route);
+        } else if (directive == "auth_basic_password") {
+            _parseAuthBasicPasswordDirective(route);
         } else if (directive.empty()) {
             break;
         } else {
@@ -291,6 +301,57 @@ void ConfigParser::_parseCgiExtensionDirective(RouteConfig& route) {
     route.addCgiHandler(parts[0], parts[1]);
     if (!_expect(';')) {
         throw std::runtime_error("Expected ';' after cgi_extension directive");
+    }
+}
+
+void ConfigParser::_parseKeepaliveTimeoutDirective(ServerConfig& server) {
+    std::string value = _parseValue();
+    int seconds = std::atoi(value.c_str());
+    if (seconds < 0) {
+        throw std::runtime_error("Invalid keepalive_timeout value: " + value);
+    }
+    server.setKeepaliveTimeout(seconds);
+    if (!_expect(';')) {
+        throw std::runtime_error("Expected ';' after keepalive_timeout directive");
+    }
+}
+
+void ConfigParser::_parseTryFilesDirective(RouteConfig& route) {
+    // Reads all tokens until ';' as a space-separated list
+    std::string line;
+    _skipWhitespace();
+    while (_pos < _rawContent.size() && _rawContent[_pos] != ';') {
+        line += _rawContent[_pos++];
+    }
+    if (!_expect(';')) {
+        throw std::runtime_error("Expected ';' after try_files directive");
+    }
+    std::vector<std::string> parts = StringUtils::split(StringUtils::trim(line), ' ');
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (!parts[i].empty()) {
+            route.addTryFile(parts[i]);
+        }
+    }
+}
+
+void ConfigParser::_parseAuthBasicDirective(RouteConfig& route) {
+    route.setAuthRealm(_parseValue());
+    if (!_expect(';')) {
+        throw std::runtime_error("Expected ';' after auth_basic directive");
+    }
+}
+
+void ConfigParser::_parseAuthBasicUserDirective(RouteConfig& route) {
+    route.setAuthUser(_parseValue());
+    if (!_expect(';')) {
+        throw std::runtime_error("Expected ';' after auth_basic_user directive");
+    }
+}
+
+void ConfigParser::_parseAuthBasicPasswordDirective(RouteConfig& route) {
+    route.setAuthPassword(_parseValue());
+    if (!_expect(';')) {
+        throw std::runtime_error("Expected ';' after auth_basic_password directive");
     }
 }
 

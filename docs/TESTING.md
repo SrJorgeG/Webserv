@@ -345,6 +345,272 @@ lsof -p $SERVER_PID | wc -l
 kill $SERVER_PID
 ```
 
+## Extra features testing
+
+These tests cover the eight features that go beyond the 42 subject and the
+official bonus. Start the server with the default config unless noted:
+
+```bash
+make && ./webserv conf/default.conf
+```
+
+### HEAD method
+
+```bash
+# HEAD returns headers but no body
+curl -v -X HEAD http://localhost:8080/index.html
+# Expected: 200, Content-Length header present, body is empty
+
+# HEAD on missing resource — correct headers for error
+curl -v -X HEAD http://localhost:8080/does_not_exist.html
+# Expected: 404, Content-Length present, no body bytes
+
+# HEAD and GET must return identical headers
+curl -sI http://localhost:8080/index.html > /tmp/head_out.txt
+curl -s -D - -o /dev/null http://localhost:8080/index.html > /tmp/get_out.txt
+diff <(grep -v "^$" /tmp/head_out.txt) <(grep -v "^$" /tmp/get_out.txt)
+# Expected: no differences in header lines
+```
+
+### OPTIONS method
+
+```bash
+# OPTIONS on root — should list GET, POST, HEAD, OPTIONS
+curl -v -X OPTIONS http://localhost:8080/
+# Expected: 200, Allow: OPTIONS, GET, POST, HEAD
+
+# OPTIONS on uploads — should list POST, GET, DELETE, HEAD, OPTIONS
+curl -v -X OPTIONS http://localhost:8080/uploads/
+# Expected: 200, Allow header contains DELETE
+
+# Content-Length must be 0 (no body)
+curl -sI -X OPTIONS http://localhost:8080/ | grep Content-Length
+# Expected: Content-Length: 0
+
+# CORS preflight simulation
+curl -v -X OPTIONS http://localhost:8080/ \
+  -H "Origin: http://example.com" \
+  -H "Access-Control-Request-Method: POST"
+# Expected: 200, Allow header present
+```
+
+### PUT method
+
+First, ensure `allow_methods PUT` is set on the target location (or use the
+`/uploads` location if you add PUT to its allow list in `default.conf`):
+
+```bash
+# Create a new resource
+curl -v -X PUT http://localhost:8080/uploads/test.txt \
+  -H "Content-Type: text/plain" \
+  --data-binary "first version"
+# Expected: 201 Created, Location: /uploads/test.txt
+
+# Verify the content
+curl http://localhost:8080/uploads/test.txt
+# Expected: "first version"
+
+# Replace the resource (idempotent)
+curl -v -X PUT http://localhost:8080/uploads/test.txt \
+  -H "Content-Type: text/plain" \
+  --data-binary "second version"
+# Expected: 200 OK (not 201)
+
+# PUT to a directory target — conflict
+curl -v -X PUT http://localhost:8080/uploads/ \
+  --data-binary "data"
+# Expected: 409 Conflict
+
+# PUT on a location that does not allow it
+curl -v -X PUT http://localhost:8080/ \
+  --data-binary "data"
+# Expected: 405 Method Not Allowed
+
+# Clean up
+curl -X DELETE http://localhost:8080/uploads/test.txt
+```
+
+### Range requests (206 Partial Content)
+
+```bash
+# Create a 20 KiB test file
+dd if=/dev/urandom bs=1K count=20 > /tmp/range_test.bin
+curl -X PUT http://localhost:8080/uploads/range_test.bin \
+  --data-binary @/tmp/range_test.bin
+
+# Verify Accept-Ranges header on a normal GET
+curl -sI http://localhost:8080/uploads/range_test.bin | grep -i accept-ranges
+# Expected: Accept-Ranges: bytes
+
+# First 1024 bytes
+curl -v -H "Range: bytes=0-1023" \
+  http://localhost:8080/uploads/range_test.bin -o /dev/null
+# Expected: 206, Content-Range: bytes 0-1023/20480
+
+# Last 512 bytes
+curl -v -H "Range: bytes=-512" \
+  http://localhost:8080/uploads/range_test.bin -o /dev/null
+# Expected: 206, Content-Range: bytes 19968-20479/20480
+
+# From offset 10000 to end
+curl -v -H "Range: bytes=10000-" \
+  http://localhost:8080/uploads/range_test.bin -o /dev/null
+# Expected: 206, Content-Range: bytes 10000-20479/20480
+
+# Out-of-range request
+curl -v -H "Range: bytes=999999-999999" \
+  http://localhost:8080/uploads/range_test.bin
+# Expected: 416 Range Not Satisfiable, Content-Range: bytes */20480
+
+# Clean up
+curl -X DELETE http://localhost:8080/uploads/range_test.bin
+```
+
+### ETag and 304 Not Modified
+
+```bash
+# Get ETag and Last-Modified from an initial request
+curl -sI http://localhost:8080/index.html | grep -E "ETag|Last-Modified"
+# Example output:
+#   ETag: "67d1a4f0-1a3"
+#   Last-Modified: Mon, 10 Mar 2025 12:00:00 GMT
+
+# Capture ETag value
+ETAG=$(curl -sI http://localhost:8080/index.html \
+  | grep -i "^etag:" | awk '{print $2}' | tr -d '\r')
+echo "ETag: $ETAG"
+
+# If-None-Match with matching ETag — should get 304, no body
+curl -v -H "If-None-Match: $ETAG" http://localhost:8080/index.html
+# Expected: 304 Not Modified
+
+# If-None-Match with wrong ETag — should get 200 with body
+curl -v -H 'If-None-Match: "wrongetag"' http://localhost:8080/index.html
+# Expected: 200 OK
+
+# Wildcard If-None-Match always matches
+curl -v -H "If-None-Match: *" http://localhost:8080/index.html
+# Expected: 304 Not Modified
+
+# If-Modified-Since with future date — should get 304
+curl -v -H "If-Modified-Since: Tue, 01 Jan 2030 00:00:00 GMT" \
+  http://localhost:8080/index.html
+# Expected: 304 Not Modified
+
+# If-Modified-Since with epoch — should get 200
+curl -v -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
+  http://localhost:8080/index.html
+# Expected: 200 OK with full body
+```
+
+### try_files directive
+
+Add this location to `conf/default.conf` for testing:
+
+```nginx
+location /app {
+    root www/default;
+    try_files $uri $uri/ /index.html;
+    allow_methods GET;
+}
+```
+
+```bash
+# Deep link that has no file on disk — should fall back to index.html
+curl -v http://localhost:8080/app/dashboard/settings
+# Expected: 200 with content of /index.html
+
+# Existing static file — served directly, no fallback
+curl -v http://localhost:8080/app/index.html
+# Expected: 200 with actual index.html
+
+# Another non-existent path — same fallback
+curl -v http://localhost:8080/app/user/profile
+# Expected: 200 with content of /index.html
+
+# Without try_files, a non-existent path returns 404
+curl -v http://localhost:8080/nonexistent/path
+# Expected: 404 Not Found
+```
+
+### HTTP Basic Authentication
+
+Add this location to `conf/default.conf` for testing:
+
+```nginx
+location /private {
+    root www/default;
+    allow_methods GET;
+    auth_basic "Test Area";
+    auth_basic_user admin;
+    auth_basic_password secret123;
+}
+```
+
+```bash
+# No credentials — must get 401 with WWW-Authenticate header
+curl -v http://localhost:8080/private/
+# Expected: 401 Unauthorized
+# Expected header: WWW-Authenticate: Basic realm="Test Area"
+
+# Correct credentials via -u flag
+curl -v -u admin:secret123 http://localhost:8080/private/
+# Expected: 200 OK
+
+# Wrong password — still 401
+curl -v -u admin:wrongpass http://localhost:8080/private/
+# Expected: 401 Unauthorized
+
+# Wrong username — still 401
+curl -v -u nobody:secret123 http://localhost:8080/private/
+# Expected: 401 Unauthorized
+
+# Manual Authorization header (base64 of "admin:secret123")
+CREDS=$(printf 'admin:secret123' | base64)
+curl -v -H "Authorization: Basic $CREDS" http://localhost:8080/private/
+# Expected: 200 OK
+
+# Malformed Authorization header
+curl -v -H "Authorization: Basic notbase64!!!" http://localhost:8080/private/
+# Expected: 401 Unauthorized
+```
+
+### Configurable keepalive_timeout
+
+Test with a config that sets a short timeout (add `keepalive_timeout 2;`
+inside a server block in `conf/default.conf`):
+
+```bash
+# Verify keepalive works within the timeout window
+# Both requests should reuse the same TCP connection
+curl -v --keepalive-time 5 \
+  http://localhost:8080/ http://localhost:8080/index.html 2>&1 \
+  | grep -E "Connected to|Re-using"
+# Expected: second request shows "Re-using existing connection"
+
+# After the timeout elapses, connection is closed
+# (with keepalive_timeout 2 in config)
+curl -v http://localhost:8080/ &
+sleep 3
+curl -v http://localhost:8080/
+# Expected: second curl opens a new connection
+
+# Check Connection header in responses
+curl -sI http://localhost:8080/ | grep -i connection
+# Expected: Connection: keep-alive (server will reuse for next request)
+
+curl -sI -H "Connection: close" http://localhost:8080/ | grep -i connection
+# Expected: Connection: close (server honors client preference)
+
+# Count open sockets — should drop after keepalive_timeout
+ss -tnp | grep 8080
+# Run a burst, wait for timeout, run again
+seq 5 | xargs -P 5 -I{} curl -s -o /dev/null http://localhost:8080/
+sleep 15
+ss -tnp | grep 8080
+# Expected: socket count drops to 0 after keepalive_timeout elapses
+```
+
 ## Pre-evaluation checklist
 
 ```

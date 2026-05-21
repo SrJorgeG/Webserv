@@ -140,3 +140,19 @@ std::string FileUtils::getParentDirectory(const std::string& path) {
     }
     return path.substr(0, pos);
 }
+
+bool FileUtils::getFileStat(const std::string& path, struct stat& st) {
+    return stat(path.c_str(), &st) == 0;
+}
+
+std::string FileUtils::readFileRange(const std::string& path, size_t offset, size_t length) {
+    std::ifstream file(path.c_str(), std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file: " + path);
+    }
+    file.seekg(static_cast<std::streamoff>(offset));
+    std::string result(length, '\0');
+    file.read(&result[0], static_cast<std::streamsize>(length));
+    result.resize(static_cast<size_t>(file.gcount()));
+    return result;
+}
