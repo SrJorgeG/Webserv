@@ -139,7 +139,13 @@ void Connection::_processRead() {
             if (_request.getMethod() == "POST" || _request.getMethod() == "PUT") {
                 std::string contentLengthStr = _request.getHeader("Content-Length");
                 if (!contentLengthStr.empty()) {
-                    size_t contentLength = static_cast<size_t>(std::atoi(contentLengthStr.c_str()));
+                    char* endPtr;
+                    long parsed = std::strtol(contentLengthStr.c_str(), &endPtr, 10);
+                    if (endPtr == contentLengthStr.c_str() || *endPtr != '\0' || parsed < 0) {
+                        _buildErrorResponse(400);
+                        return;
+                    }
+                    size_t contentLength = static_cast<size_t>(parsed);
                     if (contentLength > _serverConfig->getClientMaxBodySize()) {
                         _buildErrorResponse(413);
                         return;
@@ -209,6 +215,12 @@ void Connection::_processRequest() {
     }
     _sessionId = sessionId;
 
+    // Respect Connection: close from client (HTTP/1.0 also defaults to close)
+    std::string connHeader = StringUtils::toLower(_request.getHeader("Connection"));
+    if (connHeader == "close" || _request.getVersion() == "HTTP/1.0") {
+        _keepAlive = false;
+    }
+
     // Virtual host matching based on Host header
     _matchVirtualHost();
 
@@ -225,9 +237,7 @@ void Connection::_processRequest() {
         _response.setHeader("Content-Length", "0");
         _response.setCookie("webserv_session_id", _sessionId);
         _response.setReady(true);
-        _writeBuffer = _response.toString();
-        _state = WRITING_RESPONSE;
-        _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+        _finalizeResponse();
         return;
     }
 
@@ -245,9 +255,7 @@ void Connection::_processRequest() {
 
         if (_response.isReady()) {
             // Error occurred during start
-            _writeBuffer = _response.toString();
-            _state = WRITING_RESPONSE;
-            _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+            _finalizeResponse();
             delete _cgiHandler;
             _cgiHandler = NULL;
             return;
@@ -294,9 +302,7 @@ void Connection::_processRequest() {
     }
 
     _response.setCookie("webserv_session_id", _sessionId);
-    _writeBuffer = _response.toString();
-    _state = WRITING_RESPONSE;
-    _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+    _finalizeResponse();
 }
 
 void Connection::_processCgiWrite() {
@@ -352,10 +358,8 @@ void Connection::_processCgiRead() {
 
         // Build response and switch to writing
         _response.setCookie("webserv_session_id", _sessionId);
-        _writeBuffer = _response.toString();
         _bytesWritten = 0;
-        _state = WRITING_RESPONSE;
-        _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+        _finalizeResponse();
 
         // Cleanup CGI handler
         delete _cgiHandler;
@@ -414,9 +418,7 @@ void Connection::_buildErrorResponse(int statusCode) {
     }
     _response.buildError(statusCode, _serverConfig->getErrorPages(), root);
     _response.setCookie("webserv_session_id", _sessionId);
-    _writeBuffer = _response.toString();
-    _state = WRITING_RESPONSE;
-    _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
+    _finalizeResponse();
 }
 
 const RouteConfig* Connection::_findMatchingRoute(const std::string& uri) const {
@@ -425,4 +427,11 @@ const RouteConfig* Connection::_findMatchingRoute(const std::string& uri) const 
 
 std::string Connection::_resolvePath(const Request& request, const RouteConfig& route) {
     return StringUtils::resolvePath(request.getUri(), route.getPath(), route.getRoot());
+}
+
+void Connection::_finalizeResponse() {
+    _response.setHeader("Connection", _keepAlive ? "keep-alive" : "close");
+    _writeBuffer = _response.toString();
+    _state = WRITING_RESPONSE;
+    _reactor.modifyHandler(_clientFd, EPOLLIN | EPOLLOUT);
 }

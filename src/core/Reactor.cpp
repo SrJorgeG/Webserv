@@ -2,6 +2,7 @@
 #include "core/ServerSocket.hpp"
 #include "core/Connection.hpp"
 #include "cgi/CgiHandler.hpp"
+#include "http/SessionManager.hpp"
 #include "utils/Logger.hpp"
 #include "utils/StringUtils.hpp"
 #include <cerrno>
@@ -46,6 +47,7 @@ bool Reactor::init(const std::vector<ServerConfig>& servers) {
 void Reactor::run() {
     _running = true;
     struct epoll_event events[MAX_EVENTS];
+    int loopCount = 0;
 
     while (_running) {
         int nfds = epoll_wait(_epollFd, events, MAX_EVENTS, 1000);
@@ -60,6 +62,11 @@ void Reactor::run() {
         }
 
         _cleanupConnections();
+
+        if (++loopCount >= 300) {
+            SessionManager::getInstance().cleanExpired();
+            loopCount = 0;
+        }
     }
 }
 

@@ -45,7 +45,12 @@ if (!transferEncoding.empty() && StringUtils::toLower(transferEncoding).find("ch
     }
 
     if (!contentLength.empty()) {
-        size_t length = std::atoi(contentLength.c_str());
+        char* endPtr;
+        long parsed = std::strtol(contentLength.c_str(), &endPtr, 10);
+        if (endPtr == contentLength.c_str() || *endPtr != '\0' || parsed < 0) {
+            return PARSE_ERROR;
+        }
+        size_t length = static_cast<size_t>(parsed);
         outRequest.setContentLength(length);
         if (_buffer.size() >= length) {
             outRequest.setBody(_buffer.substr(0, length));

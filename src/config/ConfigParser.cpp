@@ -189,13 +189,16 @@ void ConfigParser::_parseListenDirective(ServerConfig& server) {
     if (colonPos != std::string::npos) {
         std::string host = value.substr(0, colonPos);
         port = std::atoi(value.substr(colonPos + 1).c_str());
+        if (port < 0 || port > 65535) {
+            throw std::runtime_error("Port out of range: " + value + " (valid range: 0-65535)");
+        }
         server.addListen(host, port);
     } else {
         port = std::atoi(value.c_str());
+        if (port < 0 || port > 65535) {
+            throw std::runtime_error("Port out of range: " + value + " (valid range: 0-65535)");
+        }
         server.addListen("0.0.0.0", port);
-    }
-    if (port < 0 || port > 65535) {
-        throw std::runtime_error("Port out of range: " + value + " (valid range: 0-65535)");
     }
     if (!_expect(';')) {
         throw std::runtime_error("Expected ';' after listen directive");

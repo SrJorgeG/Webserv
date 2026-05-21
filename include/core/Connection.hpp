@@ -68,6 +68,7 @@ private:
     void _processCgiRead();
     void _matchVirtualHost();
     void _buildErrorResponse(int statusCode);
+    void _finalizeResponse();
     const RouteConfig* _findMatchingRoute(const std::string& uri) const;
     std::string _resolvePath(const Request& request, const RouteConfig& route);
     void _unregisterCgiPipes();

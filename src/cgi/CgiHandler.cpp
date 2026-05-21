@@ -136,7 +136,11 @@ ssize_t CgiHandler::readOutputChunk(char* buffer, size_t size) {
     if (n > 0) {
         _outputBuffer.append(buffer, n);
         if (_outputBuffer.size() > CGI_MAX_OUTPUT_SIZE) {
-            LOG_WARN("CGI output exceeded maximum size limit");
+            LOG_WARN("CGI output exceeded maximum size limit, killing process");
+            if (_pid > 0) {
+                kill(_pid, SIGTERM);
+            }
+            return -1;
         }
     }
     return n;
