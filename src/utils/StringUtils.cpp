@@ -3,90 +3,112 @@
 #include <sstream>
 #include <cctype>
 
-std::string StringUtils::trim(const std::string& str) {
+std::string StringUtils::trim(const std::string& str)
+{
     return trimLeft(trimRight(str));
 }
 
-std::string StringUtils::trimLeft(const std::string& str) {
+std::string StringUtils::trimLeft(const std::string& str)
+{
     size_t start = 0;
-    while (start < str.size() && std::isspace(str[start])) {
+    while (start < str.size() && std::isspace(str[start]))
+    {
         ++start;
     }
     return str.substr(start);
 }
 
-std::string StringUtils::trimRight(const std::string& str) {
+std::string StringUtils::trimRight(const std::string& str)
+{
     if (str.empty()) return str;
     size_t end = str.size() - 1;
-    while (end > 0 && std::isspace(str[end])) {
+    while (end > 0 && std::isspace(str[end]))
+    {
         --end;
     }
     return str.substr(0, end + 1);
 }
 
-std::vector<std::string> StringUtils::split(const std::string& str, char delimiter) {
+std::vector<std::string> StringUtils::split(const std::string& str, char delimiter)
+{
     std::vector<std::string> result;
     std::stringstream ss(str);
     std::string token;
-    while (std::getline(ss, token, delimiter)) {
-        if (!token.empty()) {
+    while (std::getline(ss, token, delimiter))
+    {
+        if (!token.empty())
+        {
             result.push_back(token);
         }
     }
     return result;
 }
 
-std::vector<std::string> StringUtils::split(const std::string& str, const std::string& delimiter) {
+std::vector<std::string> StringUtils::split(const std::string& str, const std::string& delimiter)
+{
     std::vector<std::string> result;
     size_t start = 0;
     size_t end = str.find(delimiter);
-    while (end != std::string::npos) {
-        if (end > start) {
+    while (end != std::string::npos)
+    {
+        if (end > start)
+        {
             result.push_back(str.substr(start, end - start));
         }
         start = end + delimiter.size();
         end = str.find(delimiter, start);
     }
-    if (start < str.size()) {
+    if (start < str.size())
+    {
         result.push_back(str.substr(start));
     }
     return result;
 }
 
-std::string StringUtils::toLower(const std::string& str) {
+std::string StringUtils::toLower(const std::string& str)
+{
     std::string result = str;
-    for (size_t i = 0; i < result.size(); ++i) {
+    for (size_t i = 0; i < result.size(); ++i)
+    {
         result[i] = std::tolower(result[i]);
     }
     return result;
 }
 
-std::string StringUtils::toUpper(const std::string& str) {
+std::string StringUtils::toUpper(const std::string& str)
+{
     std::string result = str;
-    for (size_t i = 0; i < result.size(); ++i) {
+    for (size_t i = 0; i < result.size(); ++i)
+    {
         result[i] = std::toupper(result[i]);
     }
     return result;
 }
 
-std::string StringUtils::intToString(int value) {
+std::string StringUtils::intToString(int value)
+{
     std::ostringstream oss;
     oss << value;
     return oss.str();
 }
 
-std::string StringUtils::sizeToString(size_t value) {
+std::string StringUtils::sizeToString(size_t value)
+{
     std::ostringstream oss;
     oss << value;
     return oss.str();
 }
 
-std::string StringUtils::decodeUrl(const std::string& str) {
+std::string StringUtils::decodeUrl(const std::string& str)
+{
     std::string result;
-    for (size_t i = 0; i < str.size(); ++i) {
-        if (str[i] == '%' && i + 2 < str.size()) {
+    for (size_t i = 0; i < str.size(); ++i)
+    {
+        if (str[i] == '%' && i + 2 < str.size())
+        {
             int hex = 0;
-            for (int j = 1; j <= 2; ++j) {
+            for (int j = 1; j <= 2; ++j)
+            {
                 char c = str[i + j];
                 if (c >= '0' && c <= '9') hex = hex * 16 + (c - '0');
                 else if (c >= 'A' && c <= 'F') hex = hex * 16 + (c - 'A' + 10);
@@ -94,21 +116,30 @@ std::string StringUtils::decodeUrl(const std::string& str) {
             }
             result += static_cast<char>(hex);
             i += 2;
-        } else if (str[i] == '+') {
+        }
+        else if (str[i] == '+')
+        {
             result += ' ';
-        } else {
+        }
+        else
+        {
             result += str[i];
         }
     }
     return result;
 }
 
-std::string StringUtils::encodeUrl(const std::string& str) {
+std::string StringUtils::encodeUrl(const std::string& str)
+{
     std::string result;
-    for (size_t i = 0; i < str.size(); ++i) {
-        if (std::isalnum(str[i]) || str[i] == '-' || str[i] == '_' || str[i] == '.' || str[i] == '~') {
+    for (size_t i = 0; i < str.size(); ++i)
+    {
+        if (std::isalnum(str[i]) || str[i] == '-' || str[i] == '_' || str[i] == '.' || str[i] == '~')
+        {
             result += str[i];
-        } else {
+        }
+        else
+        {
             std::ostringstream oss;
             oss << '%' << std::uppercase << std::hex << static_cast<unsigned int>(static_cast<unsigned char>(str[i]));
             result += oss.str();
@@ -117,36 +148,45 @@ std::string StringUtils::encodeUrl(const std::string& str) {
     return result;
 }
 
-bool StringUtils::startsWith(const std::string& str, const std::string& prefix) {
+bool StringUtils::startsWith(const std::string& str, const std::string& prefix)
+{
     return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
 }
 
-bool StringUtils::endsWith(const std::string& str, const std::string& suffix) {
+bool StringUtils::endsWith(const std::string& str, const std::string& suffix)
+{
     return str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-bool StringUtils::caseInsensitiveEqual(const std::string& a, const std::string& b) {
-    if (a.size() != b.size()) {
+bool StringUtils::caseInsensitiveEqual(const std::string& a, const std::string& b)
+{
+    if (a.size() != b.size())
+    {
         return false;
     }
-    for (size_t i = 0; i < a.size(); ++i) {
+    for (size_t i = 0; i < a.size(); ++i)
+    {
         if (std::tolower(static_cast<unsigned char>(a[i])) !=
-            std::tolower(static_cast<unsigned char>(b[i]))) {
+            std::tolower(static_cast<unsigned char>(b[i])))
+            {
             return false;
         }
     }
     return true;
 }
 
-std::string StringUtils::getExtension(const std::string& path) {
+std::string StringUtils::getExtension(const std::string& path)
+{
     size_t pos = path.rfind('.');
-    if (pos != std::string::npos) {
+    if (pos != std::string::npos)
+    {
         return path.substr(pos + 1);
     }
     return "";
 }
 
-std::string StringUtils::getMimeType(const std::string& extension) {
+std::string StringUtils::getMimeType(const std::string& extension)
+{
     if (extension == "html" || extension == "htm") return "text/html";
     if (extension == "css") return "text/css";
     if (extension == "js") return "application/javascript";
@@ -173,12 +213,15 @@ std::string StringUtils::getMimeType(const std::string& extension) {
     return "application/octet-stream";
 }
 
-std::string StringUtils::htmlEscape(const std::string& str) {
+std::string StringUtils::htmlEscape(const std::string& str)
+{
     std::string result;
     result.reserve(str.size());
-    for (size_t i = 0; i < str.size(); ++i) {
+    for (size_t i = 0; i < str.size(); ++i)
+    {
         char c = str[i];
-        switch (c) {
+        switch (c)
+        {
             case '<': result += "&lt;"; break;
             case '>': result += "&gt;"; break;
             case '&': result += "&amp;"; break;
@@ -190,61 +233,73 @@ std::string StringUtils::htmlEscape(const std::string& str) {
     return result;
 }
 
-std::string StringUtils::stripQueryString(const std::string& uri) {
+std::string StringUtils::stripQueryString(const std::string& uri)
+{
     size_t qpos = uri.find('?');
-    if (qpos != std::string::npos) {
+    if (qpos != std::string::npos)
+    {
         return uri.substr(0, qpos);
     }
     return uri;
 }
 
-std::string StringUtils::resolvePath(const std::string& uri, const std::string& routePath, const std::string& root) {
+std::string StringUtils::resolvePath(const std::string& uri, const std::string& routePath, const std::string& root)
+{
     std::string path = stripQueryString(uri);
 
-    if (routePath != "/" && startsWith(path, routePath)) {
-        if (path.size() > routePath.size()) {
+    if (routePath != "/" && startsWith(path, routePath))
+    {
+        if (path.size() > routePath.size())
+        {
             path = path.substr(routePath.size());
         }
     }
 
-    if (path.empty() || path[0] != '/') {
+    if (path.empty() || path[0] != '/')
+    {
         path = "/" + path;
     }
 
     std::string fullPath = FileUtils::joinPath(root, path);
     std::string normalizedPath = FileUtils::normalizePath(fullPath);
 
-    if (!startsWith(normalizedPath, root)) {
+    if (!startsWith(normalizedPath, root))
+    {
         return "";
     }
 
     return normalizedPath;
 }
 
-std::string StringUtils::toHex(unsigned long value) {
+std::string StringUtils::toHex(unsigned long value)
+{
     if (value == 0) return "0";
     std::string result;
     const char* digits = "0123456789abcdef";
-    while (value > 0) {
+    while (value > 0)
+    {
         result = digits[value & 0xf] + result;
         value >>= 4;
     }
     return result;
 }
 
-std::string StringUtils::base64Decode(const std::string& encoded) {
+std::string StringUtils::base64Decode(const std::string& encoded)
+{
     static const std::string table =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string result;
     int val = 0, bits = -8;
-    for (size_t i = 0; i < encoded.size(); ++i) {
+    for (size_t i = 0; i < encoded.size(); ++i)
+    {
         char c = encoded[i];
         if (c == '=') break;
         size_t pos = table.find(c);
         if (pos == std::string::npos) continue;
         val = (val << 6) + static_cast<int>(pos);
         bits += 6;
-        if (bits >= 0) {
+        if (bits >= 0)
+        {
             result += static_cast<char>((val >> bits) & 0xFF);
             bits -= 8;
         }

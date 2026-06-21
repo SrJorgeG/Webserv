@@ -57,7 +57,8 @@ class CgiHandler;
 #define MAX_CONNECTIONS 1024
 
 // Estados de conexion
-enum ConnectionState {
+enum ConnectionState
+{
     READING_HEADERS,
     READING_BODY,
     PROCESSING,
@@ -68,14 +69,16 @@ enum ConnectionState {
 };
 
 // Resultados del parser
-enum ParseResult {
+enum ParseResult
+{
     PARSE_OK,
     PARSE_INCOMPLETE,
     PARSE_ERROR
 };
 
 // Niveles de log
-enum LogLevel {
+enum LogLevel
+{
     LOG_DEBUG,
     LOG_INFO,
     LOG_WARN,

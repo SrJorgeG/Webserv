@@ -5,7 +5,8 @@
 #include <vector>
 #include <map>
 
-class RouteConfig {
+class RouteConfig
+{
 public:
     RouteConfig();
     ~RouteConfig();

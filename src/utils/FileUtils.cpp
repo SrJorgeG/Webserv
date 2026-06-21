@@ -1,28 +1,34 @@
 #include "utils/FileUtils.hpp"
 #include "utils/Logger.hpp"
 
-bool FileUtils::fileExists(const std::string& path) {
+bool FileUtils::fileExists(const std::string& path)
+{
     struct stat st;
     return stat(path.c_str(), &st) == 0;
 }
 
-bool FileUtils::isDirectory(const std::string& path) {
+bool FileUtils::isDirectory(const std::string& path)
+{
     struct stat st;
     if (stat(path.c_str(), &st) != 0) return false;
     return S_ISDIR(st.st_mode);
 }
 
-bool FileUtils::isReadable(const std::string& path) {
+bool FileUtils::isReadable(const std::string& path)
+{
     return access(path.c_str(), R_OK) == 0;
 }
 
-bool FileUtils::isWritable(const std::string& path) {
+bool FileUtils::isWritable(const std::string& path)
+{
     return access(path.c_str(), W_OK) == 0;
 }
 
-std::string FileUtils::readFile(const std::string& path) {
+std::string FileUtils::readFile(const std::string& path)
+{
     std::ifstream file(path.c_str());
-    if (!file.is_open()) {
+    if (!file.is_open())
+    {
         throw std::runtime_error("Cannot open file: " + path);
     }
     std::ostringstream oss;
@@ -30,35 +36,42 @@ std::string FileUtils::readFile(const std::string& path) {
     return oss.str();
 }
 
-bool FileUtils::writeFile(const std::string& path, const std::string& content) {
+bool FileUtils::writeFile(const std::string& path, const std::string& content)
+{
     std::ofstream file(path.c_str());
     if (!file.is_open()) return false;
     file << content;
     return file.good();
 }
 
-bool FileUtils::appendFile(const std::string& path, const std::string& content) {
+bool FileUtils::appendFile(const std::string& path, const std::string& content)
+{
     std::ofstream file(path.c_str(), std::ios::app);
     if (!file.is_open()) return false;
     file << content;
     return file.good();
 }
 
-bool FileUtils::deleteFile(const std::string& path) {
+bool FileUtils::deleteFile(const std::string& path)
+{
     return remove(path.c_str()) == 0;
 }
 
-std::vector<std::string> FileUtils::listDirectory(const std::string& path) {
+std::vector<std::string> FileUtils::listDirectory(const std::string& path)
+{
     std::vector<std::string> result;
     DIR* dir = opendir(path.c_str());
-    if (!dir) {
+    if (!dir)
+    {
         throw std::runtime_error("Cannot open directory: " + path);
     }
 
     struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
+    while ((entry = readdir(dir)) != NULL)
+    {
         std::string name = entry->d_name;
-        if (name != "." && name != "..") {
+        if (name != "." && name != "..")
+        {
             result.push_back(name);
         }
     }
@@ -66,88 +79,111 @@ std::vector<std::string> FileUtils::listDirectory(const std::string& path) {
     return result;
 }
 
-std::string FileUtils::getFileExtension(const std::string& path) {
+std::string FileUtils::getFileExtension(const std::string& path)
+{
     size_t pos = path.rfind('.');
-    if (pos != std::string::npos) {
+    if (pos != std::string::npos)
+    {
         return path.substr(pos);
     }
     return "";
 }
 
-size_t FileUtils::getFileSize(const std::string& path) {
+size_t FileUtils::getFileSize(const std::string& path)
+{
     struct stat st;
-    if (stat(path.c_str(), &st) != 0) {
+    if (stat(path.c_str(), &st) != 0)
+    {
         return 0;
     }
     return st.st_size;
 }
 
-bool FileUtils::createDirectory(const std::string& path) {
+bool FileUtils::createDirectory(const std::string& path)
+{
     return mkdir(path.c_str(), 0755) == 0 || errno == EEXIST;
 }
 
-std::string FileUtils::joinPath(const std::string& a, const std::string& b) {
+std::string FileUtils::joinPath(const std::string& a, const std::string& b)
+{
     if (a.empty()) return b;
     if (b.empty()) return a;
-    if (a[a.size() - 1] == '/') {
+    if (a[a.size() - 1] == '/')
+    {
         return a + b;
     }
     return a + "/" + b;
 }
 
-std::string FileUtils::normalizePath(const std::string& path) {
+std::string FileUtils::normalizePath(const std::string& path)
+{
     std::vector<std::string> parts;
     std::istringstream iss(path);
     std::string part;
     bool isAbsolute = !path.empty() && path[0] == '/';
 
-    while (std::getline(iss, part, '/')) {
-        if (part.empty() || part == ".") {
+    while (std::getline(iss, part, '/'))
+    {
+        if (part.empty() || part == ".")
+        {
             continue;
         }
-        if (part == "..") {
-            if (!parts.empty()) {
+        if (part == "..")
+        {
+            if (!parts.empty())
+            {
                 parts.pop_back();
             }
-        } else {
+        }
+        else
+        {
             parts.push_back(part);
         }
     }
 
     std::string result;
-    for (size_t i = 0; i < parts.size(); ++i) {
+    for (size_t i = 0; i < parts.size(); ++i)
+    {
         result += "/" + parts[i];
     }
 
-    if (result.empty()) {
+    if (result.empty())
+    {
         result = isAbsolute ? "/" : ".";
     }
 
-    if (!isAbsolute && !result.empty() && result[0] == '/') {
+    if (!isAbsolute && !result.empty() && result[0] == '/')
+    {
         result = result.substr(1);
     }
 
     return result;
 }
 
-std::string FileUtils::getParentDirectory(const std::string& path) {
+std::string FileUtils::getParentDirectory(const std::string& path)
+{
     size_t pos = path.rfind('/');
-    if (pos == std::string::npos) {
+    if (pos == std::string::npos)
+    {
         return ".";
     }
-    if (pos == 0) {
+    if (pos == 0)
+    {
         return "/";
     }
     return path.substr(0, pos);
 }
 
-bool FileUtils::getFileStat(const std::string& path, struct stat& st) {
+bool FileUtils::getFileStat(const std::string& path, struct stat& st)
+{
     return stat(path.c_str(), &st) == 0;
 }
 
-std::string FileUtils::readFileRange(const std::string& path, size_t offset, size_t length) {
+std::string FileUtils::readFileRange(const std::string& path, size_t offset, size_t length)
+{
     std::ifstream file(path.c_str(), std::ios::binary);
-    if (!file.is_open()) {
+    if (!file.is_open())
+    {
         throw std::runtime_error("Cannot open file: " + path);
     }
     file.seekg(static_cast<std::streamoff>(offset));

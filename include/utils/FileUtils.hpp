@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include <vector>
 
-class FileUtils {
+class FileUtils
+{
 public:
     static bool fileExists(const std::string& path);
     static bool isDirectory(const std::string& path);

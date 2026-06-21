@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include "http/Request.hpp"
 
-class HttpParser {
+class HttpParser
+{
 public:
     HttpParser();
     ~HttpParser();

@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include <map>
 
-class StatusCodes {
+class StatusCodes
+{
 public:
     static std::string getMessage(int code);
 

@@ -3,16 +3,23 @@
 #include <cctype>
 
 Request::Request()
-    : _contentLength(0), _isChunked(false), _isComplete(false) {}
+    : _contentLength(0), _isChunked(false), _isComplete(false)
+{
+}
 
-Request::~Request() {}
+Request::~Request()
+{
+}
 
-Request::Request(const Request& other) {
+Request::Request(const Request& other)
+{
     *this = other;
 }
 
-Request& Request::operator=(const Request& other) {
-    if (this != &other) {
+Request& Request::operator=(const Request& other)
+{
+    if (this != &other)
+    {
         _method = other._method;
         _uri = other._uri;
         _version = other._version;
@@ -27,7 +34,8 @@ Request& Request::operator=(const Request& other) {
     return *this;
 }
 
-void Request::clear() {
+void Request::clear()
+{
     _method.clear();
     _uri.clear();
     _version.clear();
@@ -40,7 +48,8 @@ void Request::clear() {
     _cookies.clear();
 }
 
-bool Request::isComplete() const {
+bool Request::isComplete() const
+{
     return _isComplete;
 }
 
@@ -64,82 +73,104 @@ void Request::setContentLength(size_t length) { _contentLength = length; }
 void Request::setChunked(bool chunked) { _isChunked = chunked; }
 void Request::setQueryString(const std::string& query) { _queryString = query; }
 
-std::string Request::getHeader(const std::string& key) const {
+std::string Request::getHeader(const std::string& key) const
+{
     for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
-         it != _headers.end(); ++it) {
-        if (StringUtils::caseInsensitiveEqual(it->first, key)) {
+         it != _headers.end(); ++it)
+         {
+        if (StringUtils::caseInsensitiveEqual(it->first, key))
+        {
             return it->second;
         }
     }
     return "";
 }
 
-bool Request::hasHeader(const std::string& key) const {
+bool Request::hasHeader(const std::string& key) const
+{
     for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
-         it != _headers.end(); ++it) {
-        if (StringUtils::caseInsensitiveEqual(it->first, key)) {
+         it != _headers.end(); ++it)
+         {
+        if (StringUtils::caseInsensitiveEqual(it->first, key))
+        {
             return true;
         }
     }
     return false;
 }
 
-void Request::parseCookies() {
+void Request::parseCookies()
+{
     std::string cookieHeader = getHeader("Cookie");
-    if (cookieHeader.empty()) {
+    if (cookieHeader.empty())
+    {
         return;
     }
 
     _cookies.clear();
 
     size_t start = 0;
-    while (start < cookieHeader.size()) {
+    while (start < cookieHeader.size())
+    {
         size_t semicolon = cookieHeader.find(';', start);
         std::string pair;
-        if (semicolon == std::string::npos) {
+        if (semicolon == std::string::npos)
+        {
             pair = cookieHeader.substr(start);
             start = cookieHeader.size();
-        } else {
+        }
+        else
+        {
             pair = cookieHeader.substr(start, semicolon - start);
             start = semicolon + 1;
         }
 
-        while (start < cookieHeader.size() && cookieHeader[start] == ' ') {
+        while (start < cookieHeader.size() && cookieHeader[start] == ' ')
+        {
             ++start;
         }
 
         size_t equals = pair.find('=');
-        if (equals != std::string::npos) {
+        if (equals != std::string::npos)
+        {
             std::string name = pair.substr(0, equals);
             std::string value = pair.substr(equals + 1);
 
-            while (!name.empty() && name[0] == ' ') {
+            while (!name.empty() && name[0] == ' ')
+            {
                 name = name.substr(1);
             }
-            while (!name.empty() && name[name.size() - 1] == ' ') {
+            while (!name.empty() && name[name.size() - 1] == ' ')
+            {
                 name = name.substr(0, name.size() - 1);
             }
-            while (!value.empty() && value[0] == ' ') {
+            while (!value.empty() && value[0] == ' ')
+            {
                 value = value.substr(1);
             }
-            while (!value.empty() && value[value.size() - 1] == ' ') {
+            while (!value.empty() && value[value.size() - 1] == ' ')
+            {
                 value = value.substr(0, value.size() - 1);
             }
 
-            if (!name.empty()) {
+            if (!name.empty())
+            {
                 _cookies[name] = value;
             }
         }
     }
 }
 
-const std::map<std::string, std::string>& Request::getCookies() const {
+const std::map<std::string, std::string>& Request::getCookies() const
+{
     return _cookies;
 }
 
-std::string Request::getCookie(const std::string& name) const {
+std::string Request::getCookie(const std::string& name) const
+{
     std::map<std::string, std::string>::const_iterator it = _cookies.find(name);
-    if (it == _cookies.end()) {
+    if (it == _cookies.end())
+    {
         return "";
     }
     return it->second;

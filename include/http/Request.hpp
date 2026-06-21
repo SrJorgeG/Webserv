@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include <map>
 
-class Request {
+class Request
+{
 public:
     Request();
     ~Request();

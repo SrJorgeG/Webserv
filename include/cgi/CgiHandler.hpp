@@ -8,7 +8,8 @@
 #include "config/ServerConfig.hpp"
 
 // CGI handler state machine
-enum CgiState {
+enum CgiState
+{
     CGI_IDLE = 0,
     CGI_RUNNING = 1,
     CGI_WRITING = 2,
@@ -16,7 +17,8 @@ enum CgiState {
     CGI_DONE = 4
 };
 
-class CgiHandler {
+class CgiHandler
+{
 public:
     CgiHandler();
     ~CgiHandler();

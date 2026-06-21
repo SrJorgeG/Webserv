@@ -12,7 +12,8 @@
 
 class Reactor;
 
-class Connection : public EventHandler {
+class Connection : public EventHandler
+{
 public:
     Connection(int clientFd, const ServerConfig& serverConfig, Reactor& reactor);
     ~Connection();

@@ -2,16 +2,23 @@
 #include "utils/StringUtils.hpp"
 
 RouteConfig::RouteConfig()
-    : _autoindex(false) {}
+    : _autoindex(false)
+{
+}
 
-RouteConfig::~RouteConfig() {}
+RouteConfig::~RouteConfig()
+{
+}
 
-RouteConfig::RouteConfig(const RouteConfig& other) {
+RouteConfig::RouteConfig(const RouteConfig& other)
+{
     *this = other;
 }
 
-RouteConfig& RouteConfig::operator=(const RouteConfig& other) {
-    if (this != &other) {
+RouteConfig& RouteConfig::operator=(const RouteConfig& other)
+{
+    if (this != &other)
+    {
         _path = other._path;
         _root = other._root;
         _index = other._index;
@@ -48,7 +55,8 @@ void RouteConfig::setAutoindex(bool autoindex) { _autoindex = autoindex; }
 void RouteConfig::addAllowedMethod(const std::string& method) { _allowedMethods.push_back(method); }
 void RouteConfig::setRedirect(const std::string& redirect) { _redirect = redirect; }
 void RouteConfig::setUploadStore(const std::string& path) { _uploadStore = path; }
-void RouteConfig::addCgiHandler(const std::string& extension, const std::string& interpreter) {
+void RouteConfig::addCgiHandler(const std::string& extension, const std::string& interpreter)
+{
     _cgiHandlers[extension] = interpreter;
 }
 void RouteConfig::addTryFile(const std::string& path) { _tryFiles.push_back(path); }
@@ -56,38 +64,47 @@ void RouteConfig::setAuthRealm(const std::string& realm) { _authRealm = realm; }
 void RouteConfig::setAuthUser(const std::string& user) { _authUser = user; }
 void RouteConfig::setAuthPassword(const std::string& password) { _authPassword = password; }
 
-bool RouteConfig::isMethodAllowed(const std::string& method) const {
+bool RouteConfig::isMethodAllowed(const std::string& method) const
+{
     if (_allowedMethods.empty()) return true;
-    for (size_t i = 0; i < _allowedMethods.size(); ++i) {
+    for (size_t i = 0; i < _allowedMethods.size(); ++i)
+    {
         if (_allowedMethods[i] == method) return true;
     }
     return false;
 }
 
-bool RouteConfig::hasCgiHandler(const std::string& extension) const {
+bool RouteConfig::hasCgiHandler(const std::string& extension) const
+{
     if (_cgiHandlers.find(extension) != _cgiHandlers.end()) return true;
     if (extension[0] == '.' && _cgiHandlers.find(extension.substr(1)) != _cgiHandlers.end()) return true;
     if (extension[0] != '.' && _cgiHandlers.find("." + extension) != _cgiHandlers.end()) return true;
     return false;
 }
 
-std::string RouteConfig::getCgiInterpreter(const std::string& extension) const {
+std::string RouteConfig::getCgiInterpreter(const std::string& extension) const
+{
     std::map<std::string, std::string>::const_iterator it = _cgiHandlers.find(extension);
     if (it != _cgiHandlers.end()) return it->second;
-    if (extension[0] == '.') {
+    if (extension[0] == '.')
+    {
         it = _cgiHandlers.find(extension.substr(1));
         if (it != _cgiHandlers.end()) return it->second;
-    } else {
+    }
+    else
+    {
         it = _cgiHandlers.find("." + extension);
         if (it != _cgiHandlers.end()) return it->second;
     }
     return "";
 }
 
-bool RouteConfig::isUploadEnabled() const {
+bool RouteConfig::isUploadEnabled() const
+{
     return !_uploadStore.empty();
 }
 
-bool RouteConfig::requiresAuth() const {
+bool RouteConfig::requiresAuth() const
+{
     return !_authRealm.empty();
 }

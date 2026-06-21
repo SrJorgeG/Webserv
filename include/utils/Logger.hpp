@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include <fstream>
 
-class Logger {
+class Logger
+{
 public:
     static Logger& getInstance();
 

@@ -3,19 +3,23 @@
 std::map<int, std::string> StatusCodes::_codes;
 bool StatusCodes::_initialized = false;
 
-std::string StatusCodes::getMessage(int code) {
-    if (!_initialized) {
+std::string StatusCodes::getMessage(int code)
+{
+    if (!_initialized)
+    {
         _initCodes();
         _initialized = true;
     }
     std::map<int, std::string>::const_iterator it = _codes.find(code);
-    if (it != _codes.end()) {
+    if (it != _codes.end())
+    {
         return it->second;
     }
     return "Unknown Status";
 }
 
-void StatusCodes::_initCodes() {
+void StatusCodes::_initCodes()
+{
     _codes[100] = "Continue";
     _codes[200] = "OK";
     _codes[201] = "Created";

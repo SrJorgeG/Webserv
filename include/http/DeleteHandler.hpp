@@ -3,7 +3,8 @@
 
 #include "http/IHttpMethodHandler.hpp"
 
-class DeleteHandler : public IHttpMethodHandler {
+class DeleteHandler : public IHttpMethodHandler
+{
 public:
     DeleteHandler();
     ~DeleteHandler();

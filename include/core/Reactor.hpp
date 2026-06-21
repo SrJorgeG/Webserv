@@ -7,7 +7,8 @@
 #include <vector>
 #include <map>
 
-class Reactor {
+class Reactor
+{
 public:
     Reactor();
     ~Reactor();

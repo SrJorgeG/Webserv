@@ -14,71 +14,93 @@
 Connection::Connection(int clientFd, const ServerConfig& serverConfig, Reactor& reactor)
     : _clientFd(clientFd), _state(READING_HEADERS), _serverConfig(&serverConfig),
       _reactor(reactor), _bytesWritten(0), _lastActivity(time(NULL)), _keepAlive(true),
-      _isKeepAliveIdle(false), _cgiHandler(NULL), _cgiInputFd(-1), _cgiOutputFd(-1) {}
+      _isKeepAliveIdle(false), _cgiHandler(NULL), _cgiInputFd(-1), _cgiOutputFd(-1)
+{
+}
 
-Connection::~Connection() {
+Connection::~Connection()
+{
     _unregisterCgiPipes();
-    if (_cgiHandler) {
+    if (_cgiHandler)
+    {
         delete _cgiHandler;
         _cgiHandler = NULL;
     }
-    if (_clientFd >= 0) {
+    if (_clientFd >= 0)
+    {
         close(_clientFd);
     }
 }
 
-void Connection::handleRead() {
+void Connection::handleRead()
+{
     _isKeepAliveIdle = false;
     updateLastActivity();
-    if ((_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN) && _cgiHandler) {
+    if ((_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN) && _cgiHandler)
+    {
         _processCgiRead();
-    } else {
+    }
+    else
+    {
         _processRead();
     }
 }
 
-void Connection::handleWrite() {
+void Connection::handleWrite()
+{
     _isKeepAliveIdle = false;
     updateLastActivity();
-    if (_state == CGI_WRITING_TO_STDIN && _cgiHandler) {
+    if (_state == CGI_WRITING_TO_STDIN && _cgiHandler)
+    {
         _processCgiWrite();
-    } else {
+    }
+    else
+    {
         _processWrite();
     }
 }
 
-void Connection::handleError() {
+void Connection::handleError()
+{
     // CGI pipes get EPOLLHUP when the child closes its end. We must
     // attempt to read — this detects EOF (read returns 0) and completes
     // the CGI response. Skips normal error handling for CGI/response states.
-    if (_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN) {
-        if (_cgiHandler) {
+    if (_state == CGI_READING_FROM_STDOUT || _state == CGI_WRITING_TO_STDIN)
+    {
+        if (_cgiHandler)
+        {
             _processCgiRead();
         }
         return;
     }
-    if (_state == WRITING_RESPONSE) {
+    if (_state == WRITING_RESPONSE)
+    {
         return;
     }
     LOG_WARN("Connection error on fd " + StringUtils::intToString(_clientFd));
     _state = CLOSING;
 }
 
-int Connection::getFd() const {
+int Connection::getFd() const
+{
     return _clientFd;
 }
 
-ConnectionState Connection::getState() const {
+ConnectionState Connection::getState() const
+{
     return _state;
 }
 
-CgiHandler* Connection::getCgiHandler() const {
+CgiHandler* Connection::getCgiHandler() const
+{
     return _cgiHandler;
 }
 
-void Connection::closeConnection() {
+void Connection::closeConnection()
+{
     _unregisterCgiPipes();
-    if (_clientFd >= 0) {
+    if (_clientFd >= 0)
+    {
         _reactor.removeHandler(_clientFd);
         close(_clientFd);
         _clientFd = -1;
@@ -86,22 +108,26 @@ void Connection::closeConnection() {
     _state = CLOSING;
 }
 
-bool Connection::isTimedOut() const {
+bool Connection::isTimedOut() const
+{
     time_t timeout = _isKeepAliveIdle
         ? static_cast<time_t>(_serverConfig->getKeepaliveTimeout())
         : static_cast<time_t>(CONNECTION_TIMEOUT);
     return (time(NULL) - _lastActivity) > timeout;
 }
 
-void Connection::updateLastActivity() {
+void Connection::updateLastActivity()
+{
     _lastActivity = time(NULL);
 }
 
-void Connection::_processRead() {
+void Connection::_processRead()
+{
     char buffer[BUFFER_SIZE];
     ssize_t bytesRead = recv(_clientFd, buffer, BUFFER_SIZE - 1, 0);
 
-    if (bytesRead < 0) {
+    if (bytesRead < 0)
+    {
         // On non-blocking sockets, recv() returning -1 can mean either a real error
         // or EAGAIN/EWOULDBLOCK (socket would block). We don't check errno per the
         // subject requirement. Instead, we simply return and let epoll re-notify
@@ -110,7 +136,8 @@ void Connection::_processRead() {
         return;
     }
 
-    if (bytesRead == 0) {
+    if (bytesRead == 0)
+    {
         LOG_INFO("Client disconnected");
         _state = CLOSING;
         return;
@@ -120,67 +147,82 @@ void Connection::_processRead() {
     _readBuffer.append(buffer, bytesRead);
 
     // M1: Check read buffer size against client_max_body_size to prevent OOM
-    if (_readBuffer.size() > _serverConfig->getClientMaxBodySize()) {
+    if (_readBuffer.size() > _serverConfig->getClientMaxBodySize())
+    {
         _readBuffer.clear();
         _buildErrorResponse(413);
         return;
     }
 
-    if (_state == READING_HEADERS || _state == READING_BODY) {
+    if (_state == READING_HEADERS || _state == READING_BODY)
+    {
         ParseResult result = _parser.parse(_readBuffer, _request);
 
-        if (result == PARSE_ERROR) {
+        if (result == PARSE_ERROR)
+        {
             _readBuffer.clear();
             _parser.reset();
             _buildErrorResponse(400);
             return;
         }
-        if (result == PARSE_OK) {
+        if (result == PARSE_OK)
+        {
             // Preserve any leftover data (from pipelined requests) before resetting parser
             _readBuffer = _parser.getLeftoverData();
             _parser.reset();
 
             // Check Content-Length against client_max_body_size
-            if (_request.getMethod() == "POST" || _request.getMethod() == "PUT") {
+            if (_request.getMethod() == "POST" || _request.getMethod() == "PUT")
+            {
                 std::string contentLengthStr = _request.getHeader("Content-Length");
-                if (!contentLengthStr.empty()) {
+                if (!contentLengthStr.empty())
+                {
                     char* endPtr;
                     long parsed = std::strtol(contentLengthStr.c_str(), &endPtr, 10);
-                    if (endPtr == contentLengthStr.c_str() || *endPtr != '\0' || parsed < 0) {
+                    if (endPtr == contentLengthStr.c_str() || *endPtr != '\0' || parsed < 0)
+                    {
                         _buildErrorResponse(400);
                         return;
                     }
                     size_t contentLength = static_cast<size_t>(parsed);
-                    if (contentLength > _serverConfig->getClientMaxBodySize()) {
+                    if (contentLength > _serverConfig->getClientMaxBodySize())
+                    {
                         _buildErrorResponse(413);
                         return;
                     }
                 }
                 // Also check actual body size for chunked or accumulated body
-                if (_request.getBody().size() > _serverConfig->getClientMaxBodySize()) {
+                if (_request.getBody().size() > _serverConfig->getClientMaxBodySize())
+                {
                     _buildErrorResponse(413);
                     return;
                 }
             }
             _state = PROCESSING;
             _processRequest();
-        } else if (result == PARSE_INCOMPLETE) {
-            if (_state == READING_HEADERS && _parser.headersComplete()) {
+        }
+        else if (result == PARSE_INCOMPLETE)
+        {
+            if (_state == READING_HEADERS && _parser.headersComplete())
+            {
                 _state = READING_BODY;
             }
         }
     }
 }
 
-void Connection::_processWrite() {
-    if (_writeBuffer.empty() || _state != WRITING_RESPONSE) {
+void Connection::_processWrite()
+{
+    if (_writeBuffer.empty() || _state != WRITING_RESPONSE)
+    {
         return;
     }
 
     ssize_t bytesSent = send(_clientFd, _writeBuffer.c_str() + _bytesWritten,
                              _writeBuffer.size() - _bytesWritten, 0);
 
-    if (bytesSent < 0) {
+    if (bytesSent < 0)
+    {
         // Same as recv(): on non-blocking sockets, send() returning -1 can mean
         // EAGAIN (would block) or a real error. We don't check errno per the
         // subject requirement. Just return — epoll will re-notify us via EPOLLOUT
@@ -190,9 +232,11 @@ void Connection::_processWrite() {
 
     _bytesWritten += bytesSent;
 
-    if (_bytesWritten >= _writeBuffer.size()) {
+    if (_bytesWritten >= _writeBuffer.size())
+    {
         LOG_INFO("Response sent completely");
-        if (_keepAlive) {
+        if (_keepAlive)
+        {
             _request.clear();
             _response.clear();
             // M6: Don't clear _readBuffer - it may contain data for a pipelined request
@@ -205,24 +249,29 @@ void Connection::_processWrite() {
             _isKeepAliveIdle = true;
             updateLastActivity();
             _reactor.modifyHandler(_clientFd, EPOLLIN);
-        } else {
+        }
+        else
+        {
             _state = CLOSING;
         }
     }
 }
 
-void Connection::_processRequest() {
+void Connection::_processRequest()
+{
     // Parse cookies and manage session
     _request.parseCookies();
     std::string sessionId = _request.getCookie("webserv_session_id");
-    if (sessionId.empty() || !SessionManager::getInstance().hasSession(sessionId)) {
+    if (sessionId.empty() || !SessionManager::getInstance().hasSession(sessionId))
+    {
         sessionId = SessionManager::getInstance().createSession();
     }
     _sessionId = sessionId;
 
     // Respect Connection: close from client (HTTP/1.0 also defaults to close)
     std::string connHeader = StringUtils::toLower(_request.getHeader("Connection"));
-    if (connHeader == "close" || _request.getVersion() == "HTTP/1.0") {
+    if (connHeader == "close" || _request.getVersion() == "HTTP/1.0")
+    {
         _keepAlive = false;
     }
 
@@ -231,12 +280,14 @@ void Connection::_processRequest() {
 
     const RouteConfig* route = _findMatchingRoute(_request.getUri());
 
-    if (!route) {
+    if (!route)
+    {
         _buildErrorResponse(404);
         return;
     }
 
-    if (!route->getRedirect().empty()) {
+    if (!route->getRedirect().empty())
+    {
         _response.setStatus(301);
         _response.setHeader("Location", route->getRedirect());
         _response.setHeader("Content-Length", "0");
@@ -246,13 +297,15 @@ void Connection::_processRequest() {
         return;
     }
 
-    if (!route->isMethodAllowed(_request.getMethod())) {
+    if (!route->isMethodAllowed(_request.getMethod()))
+    {
         _buildErrorResponse(405);
         return;
     }
 
     // Basic Auth check — must happen after method check and before any handler
-    if (route->requiresAuth() && !_checkBasicAuth(*route)) {
+    if (route->requiresAuth() && !_checkBasicAuth(*route))
+    {
         _response.clear();
         _response.setStatus(401);
         _response.setHeader("WWW-Authenticate",
@@ -266,11 +319,13 @@ void Connection::_processRequest() {
     std::string path = _resolvePath(_request, *route);
     std::string ext = StringUtils::getExtension(path);
 
-    if (route->hasCgiHandler(ext)) {
+    if (route->hasCgiHandler(ext))
+    {
         _cgiHandler = new CgiHandler();
         _cgiHandler->start(_request, *route, *_serverConfig, _response);
 
-        if (_response.isReady()) {
+        if (_response.isReady())
+        {
             // Error occurred during start
             _finalizeResponse();
             delete _cgiHandler;
@@ -282,47 +337,67 @@ void Connection::_processRequest() {
         _cgiInputFd = _cgiHandler->getInputFd();
         _cgiOutputFd = _cgiHandler->getOutputFd();
 
-        if (_request.getMethod() == "POST" && !_request.getBody().empty()) {
+        if (_request.getMethod() == "POST" && !_request.getBody().empty())
+        {
             _state = CGI_WRITING_TO_STDIN;
-            if (_cgiInputFd >= 0) {
+            if (_cgiInputFd >= 0)
+            {
                 _reactor.registerHandler(_cgiInputFd, this, EPOLLOUT);
             }
-            if (_cgiOutputFd >= 0) {
+            if (_cgiOutputFd >= 0)
+            {
                 _reactor.registerHandler(_cgiOutputFd, this, EPOLLIN);
             }
-        } else {
+        }
+        else
+        {
             // No body to write, just read
             _state = CGI_READING_FROM_STDOUT;
-            if (_cgiInputFd >= 0) {
+            if (_cgiInputFd >= 0)
+            {
                 close(_cgiInputFd);
                 _cgiInputFd = -1;
             }
-            if (_cgiOutputFd >= 0) {
+            if (_cgiOutputFd >= 0)
+            {
                 _reactor.registerHandler(_cgiOutputFd, this, EPOLLIN);
             }
         }
         return;
     }
 
-    if (_request.getMethod() == "GET") {
+    if (_request.getMethod() == "GET")
+    {
         GetHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
-    } else if (_request.getMethod() == "HEAD") {
+    }
+    else if (_request.getMethod() == "HEAD")
+    {
         HeadHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
-    } else if (_request.getMethod() == "OPTIONS") {
+    }
+    else if (_request.getMethod() == "OPTIONS")
+    {
         OptionsHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
-    } else if (_request.getMethod() == "POST") {
+    }
+    else if (_request.getMethod() == "POST")
+    {
         PostHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
-    } else if (_request.getMethod() == "PUT") {
+    }
+    else if (_request.getMethod() == "PUT")
+    {
         PutHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
-    } else if (_request.getMethod() == "DELETE") {
+    }
+    else if (_request.getMethod() == "DELETE")
+    {
         DeleteHandler handler;
         handler.handle(_request, _response, *route, *_serverConfig);
-    } else {
+    }
+    else
+    {
         _buildErrorResponse(405);
         return;
     }
@@ -331,8 +406,10 @@ void Connection::_processRequest() {
     _finalizeResponse();
 }
 
-void Connection::_processCgiWrite() {
-    if (!_cgiHandler || _state != CGI_WRITING_TO_STDIN) {
+void Connection::_processCgiWrite()
+{
+    if (!_cgiHandler || _state != CGI_WRITING_TO_STDIN)
+    {
         return;
     }
 
@@ -341,9 +418,11 @@ void Connection::_processCgiWrite() {
     _cgiHandler->writeBodyChunk(body, bytesWritten);
 
     // Check if all body data has been written
-    if (bytesWritten == 0 || _cgiHandler->getState() == CGI_READING) {
+    if (bytesWritten == 0 || _cgiHandler->getState() == CGI_READING)
+    {
         // Done writing body, switch to reading
-        if (_cgiInputFd >= 0) {
+        if (_cgiInputFd >= 0)
+        {
             _reactor.removeHandler(_cgiInputFd);
             close(_cgiInputFd);
             _cgiInputFd = -1;
@@ -353,8 +432,10 @@ void Connection::_processCgiWrite() {
     }
 }
 
-void Connection::_processCgiRead() {
-    if (!_cgiHandler || (_state != CGI_READING_FROM_STDOUT && _state != CGI_WRITING_TO_STDIN)) {
+void Connection::_processCgiRead()
+{
+    if (!_cgiHandler || (_state != CGI_READING_FROM_STDOUT && _state != CGI_WRITING_TO_STDIN))
+    {
         return;
     }
 
@@ -363,18 +444,21 @@ void Connection::_processCgiRead() {
     // we must drain it until EAGAIN (-1) or EOF (0). This ensures we
     // detect EOF even when only EPOLLHUP (no EPOLLIN) fires after all
     // data has been consumed.
-    while (true) {
+    while (true)
+    {
         ssize_t n = _cgiHandler->readOutputChunk(buffer, sizeof(buffer));
         if (n < 0) break;
         if (n > 0) continue;
 
         // n == 0: EOF - CGI output complete
-        if (_cgiOutputFd >= 0) {
+        if (_cgiOutputFd >= 0)
+        {
             _reactor.removeHandler(_cgiOutputFd);
             close(_cgiOutputFd);
             _cgiOutputFd = -1;
         }
-        if (_cgiInputFd >= 0) {
+        if (_cgiInputFd >= 0)
+        {
             _reactor.removeHandler(_cgiInputFd);
             close(_cgiInputFd);
             _cgiInputFd = -1;
@@ -394,32 +478,39 @@ void Connection::_processCgiRead() {
     }
 }
 
-void Connection::_unregisterCgiPipes() {
-    if (_cgiInputFd >= 0) {
+void Connection::_unregisterCgiPipes()
+{
+    if (_cgiInputFd >= 0)
+    {
         _reactor.removeHandler(_cgiInputFd);
         close(_cgiInputFd);
         _cgiInputFd = -1;
     }
-    if (_cgiOutputFd >= 0) {
+    if (_cgiOutputFd >= 0)
+    {
         _reactor.removeHandler(_cgiOutputFd);
         close(_cgiOutputFd);
         _cgiOutputFd = -1;
     }
 }
 
-void Connection::_matchVirtualHost() {
+void Connection::_matchVirtualHost()
+{
     std::string host = _request.getHeader("Host");
-    if (host.empty()) {
+    if (host.empty())
+    {
         return;
     }
     // Remove port if present (e.g., "example.com:8080" -> "example.com")
     size_t colonPos = host.find(':');
-    if (colonPos != std::string::npos) {
+    if (colonPos != std::string::npos)
+    {
         host = host.substr(0, colonPos);
     }
     // Get port from the default server config
     const std::vector<std::pair<std::string, int> >& listens = _serverConfig->getListens();
-    if (listens.empty()) {
+    if (listens.empty())
+    {
         return;
     }
     int port = listens[0].second;
@@ -427,19 +518,23 @@ void Connection::_matchVirtualHost() {
     _serverConfig = &_reactor.matchVirtualHost(port, host);
 }
 
-void Connection::handleCgiInputWrite() {
+void Connection::handleCgiInputWrite()
+{
     _processCgiWrite();
 }
 
-void Connection::handleCgiOutputRead() {
+void Connection::handleCgiOutputRead()
+{
     _processCgiRead();
 }
 
-void Connection::_buildErrorResponse(int statusCode) {
+void Connection::_buildErrorResponse(int statusCode)
+{
     _response.clear();
     std::string root;
     const std::vector<RouteConfig>& routes = _serverConfig->getRoutes();
-    if (!routes.empty()) {
+    if (!routes.empty())
+    {
         root = routes[0].getRoot();
     }
     _response.buildError(statusCode, _serverConfig->getErrorPages(), root);
@@ -447,15 +542,18 @@ void Connection::_buildErrorResponse(int statusCode) {
     _finalizeResponse();
 }
 
-const RouteConfig* Connection::_findMatchingRoute(const std::string& uri) const {
+const RouteConfig* Connection::_findMatchingRoute(const std::string& uri) const
+{
     return _serverConfig->findRoute(uri);
 }
 
-std::string Connection::_resolvePath(const Request& request, const RouteConfig& route) {
+std::string Connection::_resolvePath(const Request& request, const RouteConfig& route)
+{
     return StringUtils::resolvePath(request.getUri(), route.getPath(), route.getRoot());
 }
 
-void Connection::_finalizeResponse() {
+void Connection::_finalizeResponse()
+{
     _response.setHeader("Connection", _keepAlive ? "keep-alive" : "close");
     _writeBuffer = _response.toString();
     _state = WRITING_RESPONSE;
@@ -465,7 +563,8 @@ void Connection::_finalizeResponse() {
 // Validates HTTP Basic Auth credentials.
 // The Authorization header value is "Basic <base64(user:password)>".
 // We decode it, split on ':', and compare with the configured credentials.
-bool Connection::_checkBasicAuth(const RouteConfig& route) {
+bool Connection::_checkBasicAuth(const RouteConfig& route)
+{
     std::string authHeader = _request.getHeader("Authorization");
     if (authHeader.empty()) return false;
     if (authHeader.substr(0, 6) != "Basic ") return false;

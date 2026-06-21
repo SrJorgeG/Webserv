@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include <map>
 
-class Response {
+class Response
+{
 public:
     Response();
     ~Response();

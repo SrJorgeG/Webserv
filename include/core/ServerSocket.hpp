@@ -7,7 +7,8 @@
 
 class Reactor;
 
-class ServerSocket : public EventHandler {
+class ServerSocket : public EventHandler
+{
 public:
     ServerSocket(const ServerConfig& config, size_t listenIndex, Reactor& reactor);
     ~ServerSocket();

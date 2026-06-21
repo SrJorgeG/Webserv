@@ -6,7 +6,8 @@
 #include <vector>
 #include <map>
 
-class ServerConfig {
+class ServerConfig
+{
 public:
     ServerConfig();
     ~ServerConfig();

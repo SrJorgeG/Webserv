@@ -5,14 +5,16 @@
 #include <map>
 #include <string>
 
-struct Session {
+struct Session
+{
     std::string id;
     std::map<std::string, std::string> data;
     time_t createdAt;
     time_t lastAccessed;
 };
 
-class SessionManager {
+class SessionManager
+{
 public:
     static SessionManager& getInstance();
 

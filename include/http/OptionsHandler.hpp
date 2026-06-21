@@ -3,7 +3,8 @@
 
 #include "http/IHttpMethodHandler.hpp"
 
-class OptionsHandler : public IHttpMethodHandler {
+class OptionsHandler : public IHttpMethodHandler
+{
 public:
     OptionsHandler();
     ~OptionsHandler();

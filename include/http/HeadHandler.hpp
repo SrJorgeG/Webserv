@@ -3,7 +3,8 @@
 
 #include "http/IHttpMethodHandler.hpp"
 
-class HeadHandler : public IHttpMethodHandler {
+class HeadHandler : public IHttpMethodHandler
+{
 public:
     HeadHandler();
     ~HeadHandler();

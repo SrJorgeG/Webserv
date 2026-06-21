@@ -4,7 +4,8 @@
 #include "Webserv.hpp"
 #include <vector>
 
-class StringUtils {
+class StringUtils
+{
 public:
     static std::string trim(const std::string& str);
     static std::string trimLeft(const std::string& str);
