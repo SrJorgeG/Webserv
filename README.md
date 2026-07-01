@@ -1,4 +1,4 @@
-_This project has been created as part of the 42 curriculum by jgomez-d and dcid-san._
+_This project has been created as part of the 42 curriculum by jgomez-d, alepinto and dcid-san._
 
 # webserv
 
