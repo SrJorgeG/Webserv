@@ -1,47 +1,27 @@
-# webserv
+# Webserv
 
-Servidor HTTP/1.1 en C++98. Un solo hilo atiende muchas conexiones TCP con `epoll`. Los CGI son procesos aparte, unidos al mismo bucle por pipes.
+> An HTTP/1.1 web server in C++98 with epoll and CGI (42 Madrid, with alepinto and dcid-san).
 
-Hecho en 42 Madrid, con alepinto y dcid-san.
+## What it does
+Single-threaded, non-blocking server handling many TCP connections through one `epoll` loop. Supports GET, POST, DELETE, HEAD and PUT, nginx-like config files, multiple ports, uploads and CGI (Python, shell, PHP) run as separate processes wired into the same loop via pipes.
 
-## Qué enseña
+## What I learned
+- Sockets (`socket/bind/listen/accept`), `O_NONBLOCK`, reactor pattern
+- HTTP parsing per RFC, CGI with `fork/execve` without blocking
+- Config parsing and team architecture
 
-| | |
-| --- | --- |
-| Sockets | `socket`, `bind`, `listen`, `accept` sobre TCP (`AF_INET`, `SOCK_STREAM`) |
-| No bloqueante | `O_NONBLOCK` y `SO_REUSEADDR` en el socket de escucha |
-| Varias conexiones | Un `epoll` para clientes, sockets de escucha y pipes de CGI |
-| Procesos | CGI con `fork` / `execve`. El padre no se bloquea en el hijo |
-| HTTP | GET, POST, DELETE, HEAD, PUT, OPTIONS, CGI, subidas y configuración al estilo nginx |
+## Tech stack
+C++98, epoll, Python/PHP CGI
 
-## Una petición
-
-```mermaid
-flowchart LR
-  cliente[Cliente] -->|TCP| escucha[listen]
-  escucha -->|accept| conexion[Conexión]
-  conexion --> epoll[epoll]
-  epoll --> http[HTTP]
-  epoll --> cgi[CGI]
-```
-
-`epoll_wait` es el único sitio donde el proceso duerme. Si `recv` o `send` no pueden seguir, se vuelve al bucle y el kernel avisa cuando el socket está listo. El detalle de ese diseño está en [docs/DESIGN.md](docs/DESIGN.md).
-
-## Uso
-
+## Build & run
 ```bash
 make
 ./webserv conf/default.conf
+curl -i http://localhost:<port>/
 ```
 
-Escucha en el puerto 8080. La configuración trae sitio estático, subidas en `/uploads` y un CGI de ejemplo.
+## Structure
+`src/` (`core/`, `http/`, `cgi/`, `config/`, `utils/`), `include/`, `conf/` (+ `conf/tests/`), `cgi-bin/`, `docs/` (architecture, CGI, testing).
 
-## Código
-
-| Pieza | Qué hace |
-| --- | --- |
-| `src/core/ServerSocket.cpp` | Crear, enlazar, escuchar y aceptar |
-| `src/core/Reactor.cpp` | `epoll` y reparto de eventos |
-| `src/core/Connection.cpp` | Lectura, escritura y estado de cada cliente |
-| `src/http/` | Petición, respuesta y cada método |
-| `src/cgi/CgiHandler.cpp` | Proceso CGI y sus pipes |
+---
+*Built at 42 Madrid by jgomez-d (Jorge Gomez De Oliveira).*
